@@ -573,3 +573,4 @@ bool loadConfig() {
   snprintf(startupFailure, SF_LEN, STARTUP_FAIL "No file: %s", CONFIG_FILE_PATH);
   return false;
 }
+
