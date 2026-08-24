@@ -485,3 +485,4 @@ bool formatSDcard() {
   else LOG_INF("SD card formatted with alloc unit size %d", alloc_unit_size);
   return res != FR_OK ? false : true;
 }
+
