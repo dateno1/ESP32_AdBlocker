@@ -636,3 +636,4 @@ void showSys() {
   logLine();
   //gpio_dump_io_configuration(stdout, SOC_GPIO_VALID_GPIO_MASK);
 }
+
