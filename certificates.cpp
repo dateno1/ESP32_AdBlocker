@@ -30,7 +30,7 @@
 
  Use of HTTPS is controlled on web page by option 'Use HTTPS' under Access Settings / Authentication settings or Edit Config / Network settings
  If the private key or public certificate is not loaded, the Use HTTPS setting is ignored.
- 
+
  Enter `https://static_ip` to access the app from the browser. A security warning will be displayed as the certificate is self signed so untrusted. 
  To trust the certificate it needs to be installed on the device: 
  - open the Chrome settings page.
