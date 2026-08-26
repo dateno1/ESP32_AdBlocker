@@ -5,6 +5,7 @@
 // - base64 encoding
 // - device startup & sleep
 //
+// dateno1 2026
 // s60sc 2021, 2023, 2025
 // some functions based on code contributed by gemi254
 
@@ -313,6 +314,7 @@ static bool startEth(bool firstcall) {
 
 static bool startWifi(bool firstcall = true) {
   // start wifi station (and wifi AP if allowed or station not defined)
+  WiFi.setSleep(WIFI_PS_NONE); //Disable Power Saving
   if (firstcall) {
     WiFi.mode(WIFI_AP_STA);
     WiFi.persistent(false); // prevent the flash storage WiFi credentials
@@ -1152,4 +1154,3 @@ bool utilsStartup() {
 #endif
   return res;
 }
-
