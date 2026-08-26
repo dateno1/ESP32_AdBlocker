@@ -1,26 +1,25 @@
-# ESP32_AdBlocker
-(This Repo Based on s60sc/ESP32_AdBlocker v3.3.1)
-(이 Repo는 s60sc/ESP32_AdBlocker v3.3.1에 기반을 두고 있습니다)
-
+# ESP32_AdBlocker  
+(This Repo Based on s60sc/ESP32_AdBlocker v3.3.1)  
+(이 Repo는 s60sc/ESP32_AdBlocker v3.3.1에 기반을 두고 있습니다)  
+  
 ESP32_AdBlocker acts as a DNS Sinkhole (like [Pi-Hole](https://pi-hole.net)) by returning 0.0.0.0 for any domain names in its blocklist, else uses an external DNS server to resolve IP addresses. This prevents content being retrieved from or sent to blocked domains. A web server is provided to control the service and monitor its operation. 
-
-## Requirements
+  
+## Requirements  
 ESP32_AdBlocker is an Arduino sketch. The ESP32 module needs PSRAM: 
-
-* ESP32-S3 with 8MB PSRAM can host a currently sized blocklist. Blocklist checks take <50 micro seconds.
-(ESP32-S3 with 4MB PSRAM Not Supported on My Fork) (Using Original)
-PSRAM 4M의 ESP32은 이 Fork에서 지원되지 않으므로 오리지널을 써주세요
-
-Please buy ESP32-S3 `N8R8` or `N16R8`
-ESP32-S3 `N8R8`나 `N16R8`를 구매해주세요
-
-## Operation
-<img src="extras/webpage.jpg" width="500" height="600">
-
-After power up, the defaut blocklist will be downloaded. It will take several minutes for ESP32_AdBlocker to be ready after processing and sorting the data. Progress can be monitored on the web page. Subsequent reloads of the same file are much quicker as only updates need to be processed. ESP32-S3 is about twice as fast as the ESP32.
-As only one file can be downloaded, a consolidated blocklist should be used. Ideally select a file less than the size of the PSRAM. The file format should be in either HOSTS format or Adblock format (only domain name entries processed). The following site for example provides a list of suitable files: ~~https://github.com/StevenBlack/hosts~~ https://dns.dateno1.com/hosts.
-
-ESP32_AdBlocker will subsequently download the selected file daily at a given time to keep the blocklist updated. The user can also individually add their own sites to block or unblock which are stored in a local custom blocklist.
+* ESP32-S3 with 8MB PSRAM can host a currently sized blocklist. Blocklist checks take <50 micro seconds.  
+(ESP32-S3 with 4MB PSRAM Not Supported on My Fork) (Using Original)  
+PSRAM 4M의 ESP32은 이 Fork에서 지원되지 않으므로 오리지널을 써주세요  
+  
+Please buy ESP32-S3 `N8R8` or `N16R8`  
+ESP32-S3 `N8R8`나 `N16R8`를 구매해주세요  
+  
+## Operation  
+<img src="extras/webpage.jpg" width="500" height="600">  
+  
+After power up, the defaut blocklist will be downloaded. It will take several minutes for ESP32_AdBlocker to be ready after processing and sorting the data. Progress can be monitored on the web page. Subsequent reloads of the same file are much quicker as only updates need to be processed. ESP32-S3 is about twice as fast as the ESP32.  
+As only one file can be downloaded, a consolidated blocklist should be used. Ideally select a file less than the size of the PSRAM. The file format should be in either HOSTS format or Adblock format (only domain name entries processed). The following site for example provides a list of suitable files: ~~https://github.com/StevenBlack/hosts~~ https://dns.dateno1.com/hosts.  
+  
+ESP32_AdBlocker will subsequently download the selected file daily at a given time to keep the blocklist updated. The user can also individually add their own sites to block or unblock which are stored in a local custom blocklist.  
 
 The entries on the ESP32_AdBlocker web page are:
 * **Allowed domains**: number of domain requests which have been allowed through since restart
