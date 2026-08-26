@@ -7,6 +7,7 @@
  *  - To view the log, press Show Log button on the browser
  * - To clear the log file contents, on log web page press Clear Log link
  */
+// dateno1 2026
  
 #include "appGlobals.h"
 #include "freertos/atomic.h"
@@ -370,6 +371,7 @@ void logSetup() {
     printf("\n\n");
     if (DEBUG_MEM) printf("init > Free: heap %lu\n", ESP.getFreeHeap()); 
     (DBG_ON) ? esp_log_level_set("*", DBG_LVL) : esp_log_level_set("*", ESP_LOG_NONE); // suppress esp log messages
+
     esp_log_set_vprintf(vprintfRedirect); // redirect esp_log output to app log
 
     UBaseType_t poolMem = psramFound() ? MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT : MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
@@ -636,4 +638,3 @@ void showSys() {
   logLine();
   //gpio_dump_io_configuration(stdout, SOC_GPIO_VALID_GPIO_MASK);
 }
-
