@@ -44,6 +44,9 @@ Browsers must have **Use secure DNS** disabled as this overrides adapter and rou
 
 ## Installation
 <img src="extras/IDE%20Settings.png" width="500" height="600">
+~v1.2
+<img src="extras/New%20IDE%20Settings.png" width="500" height="600">
+v1.3~
 Download Lastest from Release and Extract that, Change application folder name to 'ESP32_AdBlocker'
 GitHub Release의 최신 버전을 받아서 압축 해제후 폴더 이름을 'ESP32_AdBlocker'로 변경해주세요
 
