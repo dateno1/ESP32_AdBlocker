@@ -1,7 +1,10 @@
 // AdBlocker specific functions
 //
+// dateno1 2026
 // s60sc 2020, 2023, 2026
+
 #include "appGlobals.h"
+
 const size_t prvtkey_len = 0;
 const size_t cacert_len = 0;
 const char* prvtkey_pem = "";
@@ -24,6 +27,29 @@ uint32_t* ptrs; // ordered pointers to domain names
 char* storage; // linear domain name storage
 static uint32_t lastLoadMs = 0; // millis() of last successful blocklist download
 
+//static SemaphoreHandle_t blMutex = nullptr;  // create in appSetup()
+
+#include <esp_crt_bundle.h>          // Arduino core certificate bundle
+extern const uint8_t x509_certificate_bundle_start[] __asm__("_binary_x509_crt_bundle_start");
+extern const uint8_t x509_certificate_bundle_end[]   __asm__("_binary_x509_crt_bundle_end");
+/* ================= TLS trust sources =================
+ * Strategy: layered verification, tried best-first.
+ *   1) /data/CA.pem  – private/internal roots (loaded into PSRAM when large)
+ *   2) Arduino core bundle – public Mozilla roots
+ * First source whose TCP+TLS handshake succeeds performs the download.
+ * NOTE: mbedTLS accepts either a PEM chain OR the binary bundle per
+ * connection - hence sequential attempts rather than one merged store. */
+
+/* Custom CA cache - kept for process lifetime, lives in PSRAM when
+ * possible so even a multi-KB CA.pem never squeezes internal SRAM. */
+static char*  g_caBuf = nullptr;  // NUL-terminated PEM text
+static size_t g_caLen = 0;
+static bool   g_caTried = false;  // load-once flag
+
+//It for prevent crash with 5k PING_STACK_SIZE
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+///////////////////////////////////////////////////
 static uint32_t binarySearch(const char* searchStr, bool doUpdate) {
   // binary split search
   // for an update, return 0 if found (duplicate) else return ptr
@@ -39,16 +65,6 @@ static uint32_t binarySearch(const char* searchStr, bool doUpdate) {
   }
   // not found
   return doUpdate ? ptr : 0;
-}
-
-static size_t formatDomain(char* domName) {
-  // format input domain name by removing whitespace, www. prefix and converting to lowercase
-  trim(domName);
-  toCase(domName);
-  size_t domLen = strlen(domName);
-  int wwwOffset = (strncmp(domName, "www.", 4) == 0) ? 4 : 0;  // remove any leading "www."
-  memmove(domName, domName + wwwOffset,  domLen + 1 - wwwOffset);
-  return domLen - wwwOffset;
 }
 
 static void addDomain(uint32_t ptr, const char* domainStr, size_t domLen) {
@@ -70,6 +86,16 @@ static void addDomain(uint32_t ptr, const char* domainStr, size_t domLen) {
   itemsLoaded++;
 }
 
+static size_t formatDomain(char* domName) {
+  // format input domain name by removing whitespace, www. prefix and converting to lowercase
+  trim(domName);
+  toCase(domName);
+  size_t domLen = strlen(domName);
+  int wwwOffset = (strncmp(domName, "www.", 4) == 0) ? 4 : 0;  // remove any leading "www."
+  memmove(domName, domName + wwwOffset,  domLen + 1 - wwwOffset);
+  return domLen - wwwOffset;
+}
+
 static bool updateCustomFile(char* domainName, bool doDelete) {
   // user supplied domain to add to or delete from blocklist
   File file = STORAGE.open(CUSTOM_FILE_PATH, FILE_APPEND);
@@ -87,12 +113,15 @@ DnsResult checkBlocklist(const char* domainName, IPAddress& retIP) {
   // normalise the query, test blocklist, return response type + answer IP
   // normalize: strip single trailing root dot, force lowercase
   // (DNS names are case-insensitive; blocklist storage is lowercase)
-  char normName[FILE_NAME_LEN];
+
+  // use IN_FILE_NAME_LEN (128) so names up to maxDomLen (100) + dot fit
+  char normName[IN_FILE_NAME_LEN];
   size_t n = strlen(domainName);
-  if (n == 0 || n >= FILE_NAME_LEN) {
+  if (n == 0 || n >= IN_FILE_NAME_LEN) {
     retIP = IPAddress(0, 0, 0, 0);
     return DNS_SERVFAIL;
   }
+
   if (domainName[n - 1] == '.') n--; // tolerate "example.com."
   for (size_t i = 0; i < n; i++)
     normName[i] = (char)tolower((unsigned char)domainName[i]);
@@ -108,7 +137,7 @@ DnsResult checkBlocklist(const char* domainName, IPAddress& retIP) {
 
   bool blocked = false;
   if (adBlockOn) {
-    static char blockedDomain[FILE_NAME_LEN] = {0};
+    static char blockedDomain[IN_FILE_NAME_LEN] = {0};
     uint64_t usElapsed = micros();
     // check if received domain name same as previous blocked domain to skip search
     blocked = !strcmp(normName, blockedDomain) ? true : (bool)binarySearch(normName, false);
@@ -128,7 +157,10 @@ DnsResult checkBlocklist(const char* domainName, IPAddress& retIP) {
 static void checkDomain(const char* inName, bool doUpdate, bool doDelete) {
   // check if user supplied domain name is present or update user supplied name
   char domName[IN_FILE_NAME_LEN];
-  strcpy(domName, inName);
+  //strcpy(domName, inName);
+  strncpy(domName, inName, sizeof(domName) - 1);   // was strcpy - length-safe now
+  domName[sizeof(domName) - 1] = 0;
+
   if (size_t domLen = formatDomain(domName); domLen > 0) {
     if (domLen >= maxDomLen) LOG_ALT("Domain name %s is too long to process", domName);
     else {
@@ -228,6 +260,10 @@ static bool fetchBlockList(WiFiClient& wclient) {
             LOG_SEND("%0.1f%%\n", loadProg);
             sprintf(progStr, "%0.1f%%", loadProg);
             updateConfigVect("loadProg", progStr);
+			// Warning or PSRAM Space
+			if (blocklistSize > storageSize - storageSize / 5) {
+		        LOG_WRN("Blocklist past 80%% of storage - consider larger maxDomains or shorter list");
+			}
           }
           lastRead = millis();
         } else if (millis() - lastRead > timeoutVal) {
@@ -243,6 +279,83 @@ static bool fetchBlockList(WiFiClient& wclient) {
   } else LOG_ERR("Connection failed with error: %s", https.errorToString(httpCode).c_str());
   https.end();
   downloading = false;
+  return res;
+}
+
+static bool loadCustomCAs() {
+  if (g_caTried) return g_caLen > 0;   // cached verdict
+  g_caTried = true;
+  File f = STORAGE.open(CA_PEM_PATH, FILE_READ);
+  if (!f) { LOG_INF("No %s - core bundle only", CA_PEM_PATH); return false; }
+  size_t sz = f.size();
+  if (sz == 0 || sz > CA_PEM_MAX) {    // reject empty / absurd sizes
+    LOG_WRN("%s skipped (size %u)", CA_PEM_PATH, (unsigned)sz);
+    f.close(); return false;
+  }
+  /* PSRAM first; SRAM only as tiny-file fallback */
+  char* buf = (char*)ps_malloc(sz + 1);
+  bool inPsram = true;
+  if (!buf) { buf = (char*)malloc(sz + 1); inPsram = false; }
+  if (!buf) { f.close(); return false; }
+  size_t rd = f.readBytes(buf, sz);
+  f.close();
+  buf[rd] = 0;                          // setCACert expects C string
+  g_caBuf = buf; g_caLen = rd;
+  LOG_INF("CA store ready: %u bytes in %s", (unsigned)rd, inPsram ? "PSRAM" : "SRAM");
+  return true;
+}
+
+static bool fetchBlockListSecure(const char* dlHost, uint16_t dlPort) {
+  // Certificate date checks require a valid system clock (notBefore/notAfter),
+  // so refuse politely before NTP has ever answered.
+  if (time(nullptr) < 1704067200UL) { // < 2024-01-01 => unsynced
+    LOG_WRN("Clock not synced yet - skipping TLS load until time sync");
+    return false;
+  }
+
+  loadCustomCAs();                     // fills g_caBuf/g_caLen once
+
+  // Phase 1: plain TCP probe - separates "network problem" from "TLS problem"
+  {
+    NetworkClient tcp;
+    uint32_t t0 = millis();
+    bool ok = tcp.connect(dlHost, dlPort);
+    LOG_INF("TCP %s:%u -> %s (%lu ms)", dlHost, dlPort, ok ? "OPEN" : "FAIL", millis() - t0);
+    tcp.stop();
+    if (!ok) return false;             // no point trying any trust source
+  }
+
+  // Phase 2: trust sources in priority order
+  bool res = false;
+  for (int attempt = 0; attempt < 2 && !res; attempt++) {
+    NetworkClientSecure wclient;
+    const char* srcName;
+    if (attempt == 0 && g_caLen) {                 // private roots win ties
+      wclient.setCACert(g_caBuf);                  // buffer stays valid: caller scope
+      srcName = "/data/CA.pem";
+    } else if (attempt == 1 || !g_caLen) {
+      if (attempt == 0) continue;                  // nothing custom configured
+      wclient.setCACertBundle(                     // public roots embedded in flash
+          x509_certificate_bundle_start,
+          (size_t)(x509_certificate_bundle_end - x509_certificate_bundle_start));
+      srcName = "Arduino core bundle";
+    } else continue;
+
+    LOG_INF("TLS trust source: %s", srcName);
+    uint32_t t0 = millis();
+    if (wclient.connect(dlHost, dlPort)) {         // TCP + handshake
+      LOG_INF("TLS handshake OK with %s in %lu ms", srcName, millis() - t0);
+      res = fetchBlockList(wclient);               // buffer lifetime covers fetch
+    } else {
+      char errBuf[160] = {0};
+      wclient.lastError(errBuf, sizeof(errBuf));   // mbedTLS verdict (may be generic)
+      LOG_WRN("TLS handshake FAILED with %s after %lu ms: %s",
+              srcName, millis() - t0, errBuf);
+    }
+    wclient.stop();
+  }
+
+  if (!res) LOG_ERR("All TLS trust sources failed for %s:%u", dlHost, dlPort);
   return res;
 }
 
@@ -264,24 +377,10 @@ static bool downloadBlockList() {
   if (colon) { *colon = 0; dlPort = (uint16_t)atoi(colon + 1); }
 
   if (isSecure) {
-    NetworkClientSecure wclient;
-    if (!strcmp(dlHost, GITHUB_HOST)) {
-      // known host: keep certificate verification
-      if (remoteServerConnect(wclient, dlHost, dlPort, git_rootCACertificate, BLOCKLIST)) {
-        res = fetchBlockList(wclient);
-      } else LOG_ERR("Verified TLS connect failed: %s", dlHost);
-      remoteServerClose(wclient);
-    } else {
-      // any other TLS host: accept any certificate (no MITM protection)
-      LOG_WRN("TLS cert verification skipped for %s", dlHost);
-      wclient.setInsecure();
-      if (wclient.connect(dlHost, dlPort)) {
-        res = fetchBlockList(wclient);
-      } else LOG_ERR("Could not connect to %s:%u", dlHost, dlPort);
-      wclient.stop();
-    }
+    // ── rule 1: https → CA verification (/data/CA.pem → core bundle) ──
+    res = fetchBlockListSecure(dlHost, dlPort);
   } else {
-    // plain HTTP: direct connection, no certificates involved
+    // ── rule 2: http → no certificate handling (insecure by definition) ──
     NetworkClient wclient;
     if (wclient.connect(dlHost, dlPort)) {
       res = fetchBlockList(wclient);
@@ -337,35 +436,79 @@ static void loadCustom() {
   LOG_ALT("Loaded %lu custom blocked domains, unblocked %lu domains", customAdded, customDeleted);
 }
 
-static void showBlockList(int maxItems = 0) {
-  // for info
-  if (!maxItems) maxItems = itemsLoaded;
-  for (int i = 0; i < maxItems; i++) LOG_SEND("%d: %s\n", i, storage + ptrs[i]);
-  LOG_SEND("Total %lu items\n", itemsLoaded);
+/* Reset storage to the primed ("!" + "#") state so a retry never inherits
+ * partial data from an interrupted download (dedupe counts, truncation). */
+static void resetBlocklistStorage() {
+  memset(ptrs, 0, (maxDomains + 2) * sizeof(uint32_t));
+  memset(storage, 0, maxDomLen + 8);
+  memcpy(storage, "!", 1);      // sentinel: guarantees ptrs[0] != real entry
+  blocklistSize = 2;
+  itemsLoaded = 1;
+  addDomain(0, "#", 1);         // second sentinel, also sorts before domains
+}
+
+/* Block until WiFi is up AND system time is sane (post-NTP).
+ * Certificate validation is meaningless before the clock is set,
+ * so downloads must never start earlier than this. */
+static bool waitForNetworkAndTime(uint32_t timeoutMs) {
+  uint32_t waited = 0;
+  while (waited < timeoutMs) {
+    if (netIsConnected() && time(nullptr) >= 1704067200UL) return true; // >= 2024
+    delay(250);
+    waited += 250;
+  }
+  return netIsConnected() && time(nullptr) >= 1704067200UL;
 }
 
 static bool loadBlockList(const char* reason) {
-  // load or refresh blocklist file
   bool res = false;
   if (!downloading) {
+    downloading = true;                       // claim immediately
     duplicates = 0;
     updateConfigVect("loadProg", "0.0%");
     LOG_INF("%s load of latest blocklist", reason);
-    if (netIsConnected()) {
-      res = downloadBlockList();
-      if (res) lastLoadMs = millis();
-      else {
+
+    if (waitForNetworkAndTime(15000)) {
+      for (int tries = 1; tries <= 3 && !res; tries++) {
+        res = downloadBlockList();
+        if (!res && tries < 3) {
+          LOG_WRN("Attempt %d failed - resetting and retrying", tries);
+          resetBlocklistStorage();
+          delay(2000);
+        }
+      }
+      if (res) { lastLoadMs = millis(); startupFailure[0] = 0; }
+      else if (!lastLoadMs) {
         snprintf(startupFailure, SF_LEN, STARTUP_FAIL "Blocklist URL %s failed to load", fileURL);
         LOG_WRN("%s", startupFailure);
-        LOG_INF("*** Enter on browser: http://<AdBlocker IP>/control?zLoad=<valid blocklist URL>");
+      } else {
+        LOG_WRN("%s load failed - keeping existing %lu-domain blocklist", reason, itemsLoaded - 2);
       }
       loadCustom();
-    } else LOG_WRN("Internet download not available");
+    } else {
+      LOG_WRN("Network/time not ready within 15 s (%s)", netIsConnected() ? "clock" : "wifi");
+    }
+
+    downloading = false;                      // ALWAYS released, any path
   } else LOG_WRN("Ignore request as download in progress");
   return res;
 }
 
+static QueueHandle_t blQueue = nullptr;
+typedef struct { char reason[16]; } BlReq_t;
+
+static void blTask(void *parameter) {
+  BlReq_t req;
+  for (;;) {
+    if (xQueueReceive(blQueue, &req, portMAX_DELAY) == pdTRUE) {
+      loadBlockList(req.reason);   // heavy work happens HERE, not in ping task
+    }
+  }
+}
+///////////////////////////////////////////////////
+
 void appSetup() {
+  
   while (!strlen(fileURL)) {
     LOG_ALT("Enter blocklist URL on web page ...");
     delay(30000); // wait for file URL to be entered
@@ -378,6 +521,7 @@ void appSetup() {
     return;
   }
   storageSize -= minMemory;
+  if (storageSize < 1024 * 1024){ LOG_WRN("PSRAM looks absent/tiny - do a FULL power cycle (warm resets can skip OPI RAM init)"); }
   strcpy(fmtStorageSize, fmtSize(storageSize));
   storage = (char*)ps_calloc(storageSize, sizeof(char));
   if (!storage) {
@@ -399,6 +543,9 @@ void appSetup() {
 
   loadBlockList("Initial"); // best effort - DNS starts regardless
   prepDNS();
+
+  blQueue = xQueueCreate(4, sizeof(BlReq_t));
+  if (blQueue) xTaskCreatePinnedToCore(blTask, "blTask", 1024 * 10, NULL, 2, NULL, 1);
 }
 
 
@@ -419,7 +566,7 @@ bool updateAppStatus(const char* variable, const char* value, bool fromUser) {
   else if (!strcmp(variable, "maxDomains")) maxDomains = intVal * 1000;
   else if (!strcmp(variable, "minMemory")) minMemory = intVal * 1024;
   else if (!strcmp(variable, "maxDomLen")) maxDomLen = intVal;
-  else if (!strcmp(variable, "showBL")) showBlockList(intVal); // not on web page
+  //else if (!strcmp(variable, "showBL")) showBlockList(intVal); // not on web page
   else if (fromUser && !strcmp(variable, "xStop")) {
     stopLoad = true;
     LOG_ALT("Blocklist load being stopped");
@@ -430,15 +577,28 @@ bool updateAppStatus(const char* variable, const char* value, bool fromUser) {
   else if (fromUser && !strcmp(variable, "vLoad")) checkDomain(value, false, true);
   // check if user supplied domain name in blocklist
   else if (fromUser && !strcmp(variable, "wLoad")) checkDomain(value, false, false);
-  else if (fromUser && !strcmp(variable, "zLoad")) {
-    // reload or load new blocklist
+    else if (fromUser && !strcmp(variable, "zLoad")) {
     stopLoad = false;
     if (strlen(value)) {
-      strncpy(fileURL, value, IN_FILE_NAME_LEN - 1);
-      updateConfigVect("fileURLc", value);
-      updateStatus("save", "0");
+      if (strcmp(value, fileURL) != 0) {
+        /* genuinely new source: persist + controlled restart */
+        strncpy(fileURL, value, IN_FILE_NAME_LEN - 1);
+        fileURL[IN_FILE_NAME_LEN - 1] = 0;         // force NUL (hardening)
+        updateConfigVect("fileURLc", value);
+        updateStatus("save", "0");
+        doRestart("Reload blocklist request");
+      } else {
+        /* same URL: hot reload through blTask, NO restart */
+        BlReq_t req; memset(&req, 0, sizeof(req));
+        strncpy(req.reason, "Manual", sizeof(req.reason) - 1);
+        xQueueSend(blQueue, &req, 0);
+        LOG_INF("Same URL - hot reload queued (no restart)");
+      }
+    } else {
+      BlReq_t req; memset(&req, 0, sizeof(req));   // empty value = plain reload
+      strncpy(req.reason, "Manual", sizeof(req.reason) - 1);
+      xQueueSend(blQueue, &req, 0);
     }
-    doRestart("Reload blocklist request");
   }
   else if (fromUser && !strcmp(variable, "zzCustom")) {
     STORAGE.remove(CUSTOM_FILE_PATH);
@@ -499,9 +659,11 @@ esp_err_t appSpecificSustainHandler(httpd_req_t* req) {
   return ESP_OK;
 }
 
+
 void externalAlert(const char* subject, const char* message) {
   // alert any configured external servers
 }
+
 
 bool appDataFiles() {
   // callback from setupAssist.cpp, for any app specific files
@@ -509,12 +671,23 @@ bool appDataFiles() {
 }
 
 void doAppPing(bool timeSynced) {
-  // daily blocklist refresh at/after alarmHour,
-  // but never sooner than 1 hour after the previous load (e.g. the boot load)
-  const uint32_t MIN_RELOAD_INTERVAL = 3600000UL; // 1 hour
+  static bool timeSyncRetryDone = false;
+  if (!blQueue) return;
+
+  if (timeSynced && !timeSyncRetryDone) {
+    timeSyncRetryDone = true;
+    if (!lastLoadMs) {                        // initial load never succeeded
+      BlReq_t req; strncpy(req.reason, "TimeSynced", sizeof(req.reason) - 1); req.reason[15] = 0;
+      xQueueSend(blQueue, &req, 0);
+    }
+    return;
+  }
+
+  const uint32_t MIN_RELOAD_INTERVAL = 3600000UL;
   if (checkAlarm() && strlen(fileURL) &&
       (millis() - lastLoadMs > MIN_RELOAD_INTERVAL)) {
-    loadBlockList("Scheduled");
+    BlReq_t req; strncpy(req.reason, "Scheduled", sizeof(req.reason) - 1); req.reason[15] = 0;
+    xQueueSend(blQueue, &req, 0);
   }
 }
 
@@ -546,7 +719,7 @@ formatIfMountFailed~0~1~C~Format file system on failure
 wifiTimeoutSecs~30~0~N~WiFi connect timeout (secs)
 alarmHour~4~1~N~Hour of day for blocklist update
 usePing~1~0~C~Use ping
-maxDomains~200~1~N~Max number of domains (* 1000)
+maxDomains~250~1~N~Max number of domains (* 1000)
 minMemory~128~1~N~Minimum free memory (KB)
 maxDomLen~100~1~N~Max length of domain name
 allowCnt~0~2~D~Allowed domains
