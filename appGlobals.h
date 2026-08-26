@@ -1,12 +1,20 @@
 // Global AdBlocker declarations
 //
+// dateno1 2026
 // s60sc 2022
 
 #pragma once
 #include "globals.h"
 
 #if CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32S2
-#error "App not compatible with this ESP model"
+#error "App not compatible with ESP32 C3 or S2 model"
+#elif CONFIG_IDF_TARGET_ESP32S3
+  #ifndef CONFIG_ESP32S3_SPIRAM_SUPPORT
+    #error "PSRAM is required for this project. Please enable it in build settings."
+  #endif
+  #if defined(CONFIG_SPIRAM_SIZE) && (CONFIG_SPIRAM_SIZE <= 4194304)
+    #error "At least 8MB of PSRAM is required. 4MB or lower is not supported."
+   #endif
 #endif
 
 #define ALLOW_SPACES false // set true to allow whitespace in configs.txt key values
@@ -27,10 +35,10 @@
 #define HOSTNAME_GRP 0
 #define USE_IP6 false
 #define NEED_PSRAM true
-#define MIN_PSRAM 4
+#define MIN_PSRAM 8
 
 #define APP_NAME "ESP32_AdBlocker" // max 15 chars
-#define APP_VER "3.3"
+#define APP_VER "1.2"
 
 #define HTTP_CLIENTS 2 // http, ws
 #define MAX_STREAMS 0
@@ -39,7 +47,7 @@
 #define IN_FILE_NAME_LEN 128
 #define JSON_BUFF_LEN (1024 * 4) // set big enough to hold json string
 #define MAX_CONFIGS 60 // > number of entries in configs.txt
-#define GITHUB_PATH "/s60sc/ESP32_AdBlocker/main"
+#define GITHUB_PATH "/dateno1/ESP32_AdBlocker/main"
 #define CUSTOM_FILE_PATH DATA_DIR "/custom" TEXT_EXT
 
 #define STORAGE LittleFS // One of LittleFS or SD_MMC
@@ -92,27 +100,36 @@
 #define UART_PRI 1
 #define BATT_PRI 1
 
+// Private CA
+#define CA_PEM_PATH "/data/CA.pem"   // #define CA_PEM_PATH "/data/CA.pem" // optional extra root store (PEM, multi-cert allowed)
+#define CA_PEM_MAX  (64 * 1024)    // sanity cap for CA.pem
+
 /******************** Function declarations *******************/
 
 // global app specific functions
 
 void appSetup();
-IPAddress checkBlocklist(const char* domainName);
+//IPAddress checkBlocklist(const char* domainName);
 void prepDNS();
-IPAddress resolveDomain(const char* host);
+//IPAddress resolveDomain(const char* host);
 
 /******************** Global app declarations *******************/
 
 extern const char* appConfig;
 
 /******************** Added for More Functions *******************/
+/* ---------- AdBlocker DNS result contract ----------
+ * Shared between appSpecific.cpp (blocklist decision)
+ * and externalDNS.cpp (reply construction).
+ * The numeric order MUST stay: blocked < resolved < nxdomain < servfail,
+ * logs print this value directly.*/
 enum DnsResult : uint8_t {
-  DNS_BLOCKED = 0,  // in blocklist                 -> reply A 0.0.0.0
-  DNS_RESOLVED,     // forwarder returned address   -> reply A <ip>
-  DNS_NXDOMAIN,     // name doesn't exist           -> reply RCODE 3
-  DNS_SERVFAIL      // upstream error/timeout       -> reply RCODE 2
+  DNS_BLOCKED  = 0,  // name matched blocklist        -> reply A 0.0.0.0
+  DNS_RESOLVED = 1,  // upstream returned an address  -> reply A <ip>
+  DNS_NXDOMAIN = 2,  // upstream RCODE 3 (no name)    -> reply RCODE 3
+  DNS_SERVFAIL = 3   // timeout / RCODE 2,4,5         -> reply RCODE 2
 };
 
-DnsResult checkBlocklist(const char* domainName, IPAddress& retIP);
-DnsResult resolveDomainStatus(const char* domainName, IPAddress& retIP);
-IPAddress resolveDomain(const char* domainName);
+DnsResult checkBlocklist(const char* domainName, IPAddress& retIP); // Returns BLOCKED (retIP=0.0.0.0) or RESOLVED (not in list)
+DnsResult resolveDomainStatus(const char* domainName, IPAddress& retIP); // Upstream UDP resolve with cache/failover: RESOLVED, NXDOMAIN, or SERVFAIL
+IPAddress resolveDomain(const char* domainName); // Legacy wrapper: returns IP or 0.0.0.0 on any failure
