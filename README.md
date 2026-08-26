@@ -6,8 +6,9 @@ ESP32_AdBlocker acts as a DNS Sinkhole (like [Pi-Hole](https://pi-hole.net)) by 
 
 ## Requirements
 ESP32_AdBlocker is an Arduino sketch. The ESP32 module needs PSRAM: 
+
 * ESP32-S3 with 8MB PSRAM can host a currently sized blocklist. Blocklist checks take <50 micro seconds.
-~~* ESP32 with 4MB PSRAM may truncate a currently sized blocklist. Blocklist checks take <100 micro seconds.~~ (It Not Supported on My Fork) (Using Original)
+(ESP32-S3 with 4MB PSRAM Not Supported on My Fork) (Using Original)
 PSRAM 4M의 ESP32은 이 Fork에서 지원되지 않으므로 오리지널을 써주세요
 
 Please buy ESP32-S3 `N8R8` or `N16R8`
