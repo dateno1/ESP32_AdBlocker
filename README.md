@@ -1,19 +1,22 @@
 # ESP32_AdBlocker
+(This Repo Based on s60sc/ESP32_AdBlocker v3.3.1)
+(이 Repo는 s60sc/ESP32_AdBlocker v3.3.1에 기반을 두고 있습니다)
 
-ESP32_AdBlocker acts as a DNS Sinkhole (like [Pi-Hole](https://pi-hole.net/)) by returning 0.0.0.0 for any domain names in its blocklist, else uses an external DNS server to resolve IP addresses. This prevents content being retrieved from or sent to blocked domains. A web server is provided to control the service and monitor its operation. 
+ESP32_AdBlocker acts as a DNS Sinkhole (like [Pi-Hole](https://pi-hole.net)) by returning 0.0.0.0 for any domain names in its blocklist, else uses an external DNS server to resolve IP addresses. This prevents content being retrieved from or sent to blocked domains. A web server is provided to control the service and monitor its operation. 
 
 ## Requirements
-
 ESP32_AdBlocker is an Arduino sketch. The ESP32 module needs PSRAM: 
 * ESP32-S3 with 8MB PSRAM can host a currently sized blocklist. Blocklist checks take <50 micro seconds.
-* ESP32 with 4MB PSRAM may truncate a currently sized blocklist. Blocklist checks take <100 micro seconds.
+~~* ESP32 with 4MB PSRAM may truncate a currently sized blocklist. Blocklist checks take <100 micro seconds.~~ (It Not Supported on My Fork) (Using Original)
+Please buy ESP32-S3 N8R8 or N16R8
+PSRAM 4M의 ESP32은 이 Fork에서 지원되지 않으므로 오리지널을 써주세요
+ESP32-S3 N8R8나 N16R8를 구매해주세요
 
 ## Operation
-
 <img src="extras/webpage.jpg" width="500" height="600">
 
 After power up, the defaut blocklist will be downloaded. It will take several minutes for ESP32_AdBlocker to be ready after processing and sorting the data. Progress can be monitored on the web page. Subsequent reloads of the same file are much quicker as only updates need to be processed. ESP32-S3 is about twice as fast as the ESP32.
-As only one file can be downloaded, a consolidated blocklist should be used. Ideally select a file less than the size of the PSRAM. The file format should be in either HOSTS format or Adblock format (only domain name entries processed). The following site for example provides a list of suitable files: https://github.com/StevenBlack/hosts.
+As only one file can be downloaded, a consolidated blocklist should be used. Ideally select a file less than the size of the PSRAM. The file format should be in either HOSTS format or Adblock format (only domain name entries processed). The following site for example provides a list of suitable files: ~~https://github.com/StevenBlack/hosts~~ https://dns.dateno1.com/hosts.
 
 ESP32_AdBlocker will subsequently download the selected file daily at a given time to keep the blocklist updated. The user can also individually add their own sites to block or unblock which are stored in a local custom blocklist.
 
@@ -40,12 +43,14 @@ To switch back to usual DNS Server, eg Google, enter:
 Browsers must have **Use secure DNS** disabled as this overrides adapter and router DNS settings.
 
 ## Installation
-
-Download github files into the Arduino IDE sketch folder, removing `-main` from the application folder name.
+<img src="extras/IDE%20Settings.png" width="500" height="600">
+Download Lastest from Release and Extract that, Change application folder name to 'ESP32_AdBlocker'
+GitHub Release의 최신 버전을 받아서 압축 해제후 폴더 이름을 'ESP32_AdBlocker'로 변경해주세요
 
 Compile using esp32 arduino core min v3.1.1 with PSRAM enabled and the following Partition scheme:
-* ESP32-S3 - `8M with spiffs (...)`
-* ESP32 - `Minimal SPIFFS (...)`
+ESP32 Arduino Core v3.1.1이상 버전을 PSRAM 활성화후 다음 파티션 구조로 설정해주세요
+* ~v1.2 - `8M with spiffs (...)`
+* v1.3~ - `Custom` (If you Using 8M PSRAM Device Using 'Partition_8M.csv')
 
 On first installation, the application will start in wifi AP mode - connect to SSID: **ESP32_AdBlocker_...**, to allow router and password details to be entered via the web page on `192.168.4.1`. The configuration data file (except passwords) is automatically created, and the application web pages automatically downloaded from GitHub to the SD card **/data** folder when an internet connection is available.
 
