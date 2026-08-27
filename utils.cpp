@@ -1,4 +1,3 @@
-
 // General utilities not specific to this app to support:
 // - wifi / ethernet
 // - NTP
@@ -71,6 +70,8 @@ uint32_t wifiTimeoutSecs = 30; // how often to check wifi status
 static bool APstarted = false;
 esp_ping_handle_t pingHandle = NULL;
 bool usePing = true;
+
+bool checkDataFiles();   // defined in setupAssist.cpp
 
 static void startPing();
 static bool getLocalNTP();
@@ -193,6 +194,16 @@ static void setWifiAP() {
       WiFi.AP.config(_ip, _gw, _sn);
     } 
     WiFi.AP.create(AP_SSID, AP_Pass);
+    //Check AP
+    uint32_t t0 = millis();
+    while (!APstarted && millis() - t0 < 2000) delay(50);
+    if (!APstarted) {                       // one nudge if the event hasn't landed
+      LOG_WRN("AP start retry");
+      WiFi.AP.clear();
+      WiFi.AP.create(AP_SSID, AP_Pass);
+      t0 = millis();
+      while (!APstarted && millis() - t0 < 2000) delay(50);
+    }
     debugMemory("setWifiAP");
   }
 }
@@ -338,9 +349,9 @@ static bool startWifi(bool firstcall = true) {
         delay(500);
       }
     }
-    // show stats of requested SSID
-    int numNetworks = WiFi.scanNetworks();
-    for (int i=0; i < numNetworks; i++) {
+    // show stats of requested SSID (skip scan when unconfigured)
+    int numNetworks = strlen(ST_SSID) ? WiFi.scanNetworks() : 0;
+    for (int i = 0; i < numNetworks; i++) {
       if (WiFi.SSID(i) == ST_SSID)
         LOG_INF("Wifi stats for %s - signal strength: %ld dBm; Encryption: %s; channel: %ld",  ST_SSID, WiFi.RSSI(i), getEncType(i), WiFi.channel(i));
     }
@@ -429,11 +440,21 @@ void resetWatchDog(int wdIndex, uint32_t wdTimeout) {
 }
 
 static void statusCheck() {
-  // regular status checks
   if (!timeSynchronized) getLocalNTP();
   doAppPing(timeSynchronized);
   checkScheduledRestart();
-  if (!dataFilesChecked) dataFilesChecked = checkDataFiles();
+    if (!dataFilesChecked && timeSynchronized) {
+      
+    static uint32_t lastTry = 0;
+    static uint8_t  fails   = 0;
+    if (millis() - lastTry > (fails >= 3 ? 3600000UL : 30000UL)) {   // 30 s, then hourly
+      lastTry = millis();
+      dataFilesChecked = checkDataFiles();
+      if (!dataFilesChecked) {
+        if (++fails == 3) LOG_WRN("GitHub unreachable - pausing data-file updates for 1 h");
+      } else fails = 0;
+    }
+  }
 #if INCLUDE_MQTT
   if (mqtt_active) startMqttClient();
 #endif
