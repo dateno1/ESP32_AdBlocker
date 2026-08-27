@@ -1,70 +1,91 @@
-
 // Assist setup for new app installations
 // original provided by gemi254
 // 
 // s60sc 2023
+// dateno1 2026
 
 #include "appGlobals.h"
+#include <esp_crt_bundle.h>
+
+extern const uint8_t x509_certificate_bundle_start[] __asm__("_binary_x509_crt_bundle_start");
+extern const uint8_t x509_certificate_bundle_end[]   __asm__("_binary_x509_crt_bundle_end");
 
 #if (!INCLUDE_CERTS)
 const char* git_rootCACertificate = "";
 #endif
 
-static bool wgetFile(const char* filePath) {
-  // download required data file from github repository and store
-  bool res = false;
-  if (STORAGE.exists(filePath)) {
-    // if file exists but is empty, delete it to allow re-download
-    File f = STORAGE.open(filePath, FILE_READ);
-    size_t fSize = f.size();
-    f.close();
-    if (!fSize) STORAGE.remove(filePath);
+//New version must check downloaded file before Replace old file
+bool wgetFile(const char* resultPath, const char* host, const char* urlPath) {
+  char tmpPath[80];
+  snprintf(tmpPath, sizeof(tmpPath), "%s.tmp", resultPath);
+
+  if (ESP.getFreeHeap() < TLS_HEAP) {
+    LOG_WRN("Insufficient heap %luKB for TLS session", (unsigned long)(ESP.getFreeHeap() / 1024));
+    return false;
   }
-  if (!STORAGE.exists(filePath)) {
-    char downloadURL[150];
-    snprintf(downloadURL, 150, "%s%s", GITHUB_PATH, filePath);
-    File f = STORAGE.open(filePath, FILE_WRITE);
-    if (f) {
-      NetworkClientSecure wclient;
-      if (remoteServerConnect(wclient, GITHUB_HOST, HTTPS_PORT, git_rootCACertificate, SETASSIST)) {
-        HTTPClient https;
-        if (https.begin(wclient, GITHUB_HOST, HTTPS_PORT, downloadURL)) {
-          LOG_INF("Downloading %s from %s", filePath, downloadURL);
-          int httpCode = https.GET();
-          int fileSize = 0;
-          if (httpCode == HTTP_CODE_OK) {
-            fileSize = https.writeToStream(&f);
-            if (fileSize <= 0) {
-              LOG_WRN("Download failed: writeToStream - %s", https.errorToString(fileSize).c_str());
-              httpCode = 0;
-            } else LOG_INF("Downloaded %s, size %s", filePath, fmtSize(fileSize));       
-          } else LOG_WRN("Download failed, error: %s", https.errorToString(httpCode).c_str());    
-          https.end();
-          f.close();
-          if (httpCode == HTTP_CODE_OK) {
-            if (!strcmp(filePath, CONFIG_FILE_PATH)) doRestart("Config file downloaded");
-            res = true;
-          } else {
-            LOG_WRN("HTTP Get failed with code: %d", httpCode);
-            STORAGE.remove(filePath);
-          }
-        }
-      }
-      remoteServerClose(wclient);
-    } else LOG_WRN("Open failed: %s", filePath);
-  } else res = true;
-  return res;
+
+  NetworkClientSecure wclient;
+  wclient.setCACertBundle(
+      x509_certificate_bundle_start,
+      (size_t)(x509_certificate_bundle_end - x509_certificate_bundle_start)); // public roots
+
+  uint32_t t0 = millis();
+  if (!wclient.connect(host, HTTPS_PORT)) {
+    LOG_WRN("TLS connect failed: %s (%lu ms)", host, millis() - t0);
+    return false;
+  }
+
+  HTTPClient http;
+  if (!http.begin(wclient, host, HTTPS_PORT, urlPath)) {
+    LOG_ERR("begin failed: %s", urlPath);
+    wclient.stop();
+    return false;
+  }
+  int httpCode = http.GET();
+  if (httpCode != HTTP_CODE_OK) {
+    LOG_WRN("HTTP Get failed with code: %d", httpCode);
+    http.end(); wclient.stop();
+    STORAGE.remove(tmpPath);
+    return false;
+  }
+
+  int totalLen = http.getSize();
+  File f = STORAGE.open(tmpPath, FILE_WRITE);
+  size_t written = f ? http.writeToStream(&f) : 0;
+  f.close();
+  http.end();
+  wclient.stop();
+
+  if (written == 0 || (totalLen > 0 && written != (size_t)totalLen)) {
+    LOG_ERR("Incomplete download (%u/%d bytes) - discarded", (unsigned)written, totalLen);
+    STORAGE.remove(tmpPath);
+    return false;
+  }
+
+  STORAGE.remove(resultPath);
+  if (!STORAGE.rename(tmpPath, resultPath)) {
+    LOG_ERR("Rename %s -> %s failed", tmpPath, resultPath);
+    STORAGE.remove(tmpPath);
+    return false;
+  }
+
+  LOG_INF("Downloaded %s, size %u bytes", resultPath, (unsigned)written);
+  return true;
 }
 
 bool checkDataFiles() {
-  // Download any missing data files
-  bool res = false;
-  if (strlen(GITHUB_PATH)) {
-    res = wgetFile(COMMON_JS_PATH); 
-    if (res) res = wgetFile(INDEX_PAGE_PATH); 
-    if (res) res = appDataFiles(); 
-  } else res = true; // no download needed
-  return res;
+  // refresh /data files from the GitHub repo (GITHUB_PATH branch)
+  bool res = true;
+  const char* dataFiles[] = {
+    "/data/common.js",
+    "/data/AdBlocker.htm",
+  };
+  char urlPath[160];
+  for (auto fPath : dataFiles) {
+    snprintf(urlPath, sizeof(urlPath), "%s%s", GITHUB_PATH, fPath);
+    if (!wgetFile(fPath, "raw.githubusercontent.com", urlPath)) res = false;
+  }
+  return res;   // false just means one or more files couldn't refresh
 }
 
 const char* setupPage_html = R"~(
@@ -315,4 +336,3 @@ const char* failPageE_html = R"~(
   </body>
 </html>
 )~";
-
