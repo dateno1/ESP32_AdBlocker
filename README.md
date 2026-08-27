@@ -53,6 +53,12 @@ At First You Need to Download&Install `Arduino IDE`
   
 Download Lastest from Release and Extract that, Change application folder name to 'ESP32_AdBlocker'  
 GitHub Release의 최신 버전을 받아서 압축 해제후 폴더 이름을 'ESP32_AdBlocker'로 변경해주세요  
+
+If You Don't Want to Auto Update Files from GitHub Edit 'checkDataFils()' in 'setupAssist.cpp' or 'GITHUB_PATH' in 'appGlobals.h'  
+만일 GitHub에서 에서 자동으로 업데이트 되는걸 원치 않으시면 'setupAssist.cpp'의 'checkDataFils()'나 'appGlobals.h'의 'GITHUB_PATH'를 수정해주세요  
+  
+If You Want to Diable `DNS Result` Log Comment 2 Lines in 'externalDNS.cpp'  
+`DNS Result` 로그를 끄길 원하시면 'externalDNS.cpp'의 2줄을 주석처리 해주세요  
   
 Compile using esp32 arduino core min v3.1.1 with PSRAM enabled and the following Partition scheme:  
 ESP32 Arduino Core v3.1.1이상 버전을 설치후 PSRAM 활성화하고, 다음 파티션 구조로 설정해주세요  
