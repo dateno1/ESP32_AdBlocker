@@ -38,7 +38,7 @@
 #define MIN_PSRAM 8
 
 #define APP_NAME "ESP32_AdBlocker" // max 15 chars
-#define APP_VER "1.2"
+#define APP_VER "1.3"
 
 #define HTTP_CLIENTS 2 // http, ws
 #define MAX_STREAMS 0
@@ -47,7 +47,7 @@
 #define IN_FILE_NAME_LEN 128
 #define JSON_BUFF_LEN (1024 * 4) // set big enough to hold json string
 #define MAX_CONFIGS 60 // > number of entries in configs.txt
-#define GITHUB_PATH "/dateno1/ESP32_AdBlocker/main"
+#define GITHUB_PATH "/dateno1/ESP32_AdBlocker/Main"
 #define CUSTOM_FILE_PATH DATA_DIR "/custom" TEXT_EXT
 
 #define STORAGE LittleFS // One of LittleFS or SD_MMC
@@ -103,6 +103,10 @@
 // Private CA
 #define CA_PEM_PATH "/data/CA.pem"   // #define CA_PEM_PATH "/data/CA.pem" // optional extra root store (PEM, multi-cert allowed)
 #define CA_PEM_MAX  (64 * 1024)    // sanity cap for CA.pem
+
+// for IPv6 Support
+bool resolveAAAA(const char* host, uint8_t out[16]); // true + 16-byte address on success
+
 
 /******************** Function declarations *******************/
 
