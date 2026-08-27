@@ -1,4 +1,3 @@
-
 /* 
   Management and storage of application configuration state.
   Configuration file stored on flash or SD, except passwords which are stored in NVS
@@ -26,6 +25,7 @@
   - X : Text input field not updated by app
 
   s60sc 2022, 2024
+  dateno1 2026
 */
 
 #include "appGlobals.h"
@@ -501,9 +501,9 @@ static bool checkConfigFile() {
       char cfg[100];
       sprintf(cfg, "appId~%s~99~~na\n", APP_NAME);
       file.write((uint8_t*)cfg, strlen(cfg));
-      sprintf(cfg, "hostName~%s~%d~T~Device host name\n", hostName, HOSTNAME_GRP);
+      sprintf(cfg, "hostName~%s~%d~T~Device Host Name\n", hostName, HOSTNAME_GRP);
       file.write((uint8_t*)cfg, strlen(cfg));
-      sprintf(cfg, "AP_SSID~%s~0~T~AP SSID name\n", hostName);
+      sprintf(cfg, "AP_SSID~%s~0~T~AP Mode SSID\n", hostName);
       file.write((uint8_t*)cfg, strlen(cfg));
       sprintf(cfg, "cfgVer~%u~99~T~na\n", CFG_VER);
       file.write((uint8_t*)cfg, strlen(cfg));
@@ -573,4 +573,3 @@ bool loadConfig() {
   snprintf(startupFailure, SF_LEN, STARTUP_FAIL "No file: %s", CONFIG_FILE_PATH);
   return false;
 }
-
