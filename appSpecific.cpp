@@ -27,8 +27,6 @@ uint32_t* ptrs; // ordered pointers to domain names
 char* storage; // linear domain name storage
 static uint32_t lastLoadMs = 0; // millis() of last successful blocklist download
 
-//static SemaphoreHandle_t blMutex = nullptr;  // create in appSetup()
-
 #include <esp_crt_bundle.h>          // Arduino core certificate bundle
 extern const uint8_t x509_certificate_bundle_start[] __asm__("_binary_x509_crt_bundle_start");
 extern const uint8_t x509_certificate_bundle_end[]   __asm__("_binary_x509_crt_bundle_end");
@@ -46,10 +44,10 @@ static char*  g_caBuf = nullptr;  // NUL-terminated PEM text
 static size_t g_caLen = 0;
 static bool   g_caTried = false;  // load-once flag
 
-//It for prevent crash with 5k PING_STACK_SIZE
+//It for Prevent Crash with TLS Check without Increase PING_STACK_SIZE
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
-///////////////////////////////////////////////////
+
 static uint32_t binarySearch(const char* searchStr, bool doUpdate) {
   // binary split search
   // for an update, return 0 if found (duplicate) else return ptr
@@ -218,11 +216,15 @@ static void extractBlocklist() {
 }
 
 static bool fetchBlockList(WiFiClient& wclient) {
-  // GET + stream-parse the blocklist over an established connection
+  // GET + stream-parse the blocklist over an established connection.
+  // Only a provably complete transfer counts as success; anything else
+  // is discarded so the caller can roll back to the previous generation.
   HTTPClient https;
   size_t downloadSize = 0;
   char progStr[10];
+  bool downloadingFlag = true; (void)downloadingFlag;
   bool res = false;
+
   downloading = true;
   if (!https.begin(wclient, fileURL)) {
     LOG_ERR("Could not open %s", fileURL);
@@ -230,53 +232,94 @@ static bool fetchBlockList(WiFiClient& wclient) {
     return false;
   }
   LOG_INF("Downloading %s\n", fileURL);
+
   int httpCode = https.GET();
   if (httpCode > 0) {
     uint32_t loadTime = millis();
     if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY) {
       int left = https.getSize();
-      if (left > 0) LOG_INF("File size: %s", fmtSize(left));
+      const int knownLeft = left;              // -1 => server sent no length
+      if (knownLeft > 0) LOG_INF("File size: %s", fmtSize(left));
       else LOG_WRN("File size unknown");
       LOG_INF("%s memory available for download", fmtStorageSize);
+
       WiFiClient* stream = https.getStreamPtr();
       uint32_t lastRead = millis();
       size_t lineCnt = 0;
-      while (https.connected() && (left > 0 || left == -1)) {
-        if (stopLoad) break;
+
+      bool complete = false;                   // provably whole transfer
+      bool timedOut = false;
+      bool stopped   = false;
+      bool storageFull = false;
+
+      while (https.connected()) {
+        if (stopLoad) { stopped = true; break; }
+
         if (stream->available()) {
           size_t lineSize = stream->readBytesUntil('\n', domainLine, maxLineLen - 1);
           domainLine[lineSize] = 0;
           lineSize++;
           downloadSize += lineSize;
-          if (left > 0) left -= lineSize;
+          if (knownLeft > 0) {
+            left -= lineSize;
+            if (left <= 0) { complete = true; break; }   // got every promised byte
+          }
+
           if (blocklistSize + maxDomLen + 2 > storageSize || itemsLoaded >= maxDomains) {
-            LOG_ALT("Blocklist truncated at %lu domains, %s of %s used",
-                    itemsLoaded, fmtSize(blocklistSize), fmtStorageSize);
+            LOG_ALT("Storage limit reached at %lu domains - transfer discarded",
+                    itemsLoaded);
+            storageFull = true;
             break;
           }
+
           extractBlocklist();
-          if (++lineCnt % 1000 == 0 && left > 0) {
+
+          if (++lineCnt % 1000 == 0) {
             float loadProg = (float)(downloadSize * 100.0 / (downloadSize + left));
             LOG_SEND("%0.1f%%\n", loadProg);
             sprintf(progStr, "%0.1f%%", loadProg);
             updateConfigVect("loadProg", progStr);
-			// Warning or PSRAM Space
-			if (blocklistSize > storageSize - storageSize / 5) {
-		        LOG_WRN("Blocklist past 80%% of storage - consider larger maxDomains or shorter list");
-			}
+            if (blocklistSize > storageSize - storageSize / 5)
+              LOG_WRN("Blocklist past 80%% of storage - consider larger maxDomains or shorter list");
           }
           lastRead = millis();
+
         } else if (millis() - lastRead > timeoutVal) {
-          if (left > 0) LOG_WRN("Timeout on download, %s unread", fmtSize(left));
+          timedOut = true;
+          if (knownLeft > 0 && left > 0)
+            LOG_WRN("Timeout on download, %s unread", fmtSize(left));
           break;
         }
       }
+
+      /* Unknown-length transfers end when the server closes the connection;
+       * accept that as complete unless a stop/timeout/storage abort happened */
+      if (knownLeft <= 0 && !stopped && !timedOut && !storageFull)
+        complete = true;
+
       ptrs[itemsLoaded] = blocklistSize;
-      LOG_INF("Download complete, processed %s in %lu secs", fmtSize(downloadSize), (millis() - loadTime) / 1000);
-      LOG_ALT("Loaded %lu blocked domains excluding %lu duplicates, using %s of %s", itemsLoaded - 2, duplicates, fmtSize(blocklistSize), fmtStorageSize);
-      res = true;
-    } else LOG_WRN("Unexpected result code %u %s", httpCode, https.errorToString(httpCode).c_str());
-  } else LOG_ERR("Connection failed with error: %s", https.errorToString(httpCode).c_str());
+
+      if (complete && !stopped && !storageFull) {
+        LOG_INF("Download complete, processed %s in %lu secs",
+                fmtSize(downloadSize), (millis() - loadTime) / 1000);
+        LOG_ALT("Loaded %lu blocked domains excluding %lu duplicates, using %s of %s",
+                itemsLoaded - 2, duplicates, fmtSize(blocklistSize), fmtStorageSize);
+        res = true;
+      } else {
+        const char* why = stopped ? "user stop"
+                        : timedOut ? "timeout/disconnect"
+                        : storageFull ? "storage limit"
+                        : "connection lost";
+        LOG_WRN("Transfer INCOMPLETE (%s) - %lu domains loaded, DISCARDED "
+                "(snapshot/list untouched)",
+                why, itemsLoaded - 2);
+        res = false;                           // caller rolls back
+      }
+    } else LOG_WRN("Unexpected result code %u %s",
+                   httpCode, https.errorToString(httpCode).c_str());
+  } else LOG_ERR("Connection failed with error: %s",
+                 https.errorToString(httpCode).c_str());
+
   https.end();
   downloading = false;
   return res;
@@ -391,7 +434,7 @@ static bool downloadBlockList() {
   if (stopLoad) {
     LOG_ALT("Blocklist load stopped by user request");
     updateConfigVect("loadProg", "Stopped");
-    res = true;
+    /* res stays false -> previous generation is reinstated */
   } else if (res) updateConfigVect("loadProg", "Complete");
   else updateConfigVect("loadProg", "Failed");
   return res;
@@ -436,15 +479,220 @@ static void loadCustom() {
   LOG_ALT("Loaded %lu custom blocked domains, unblocked %lu domains", customAdded, customDeleted);
 }
 
+/* incremental CRC32 */
+static uint32_t crc32_begin() { return 0xFFFFFFFFu; }
+static uint32_t crc32_upd(uint32_t c, const uint8_t* d, size_t n) {
+  while (n--) { c ^= *d++;
+    for (int k = 0; k < 8; k++) c = (c >> 1) ^ (0xEDB88320 & (-(int32_t)(c & 1)));
+  }
+  return c;
+}
+static uint32_t crc32_end(uint32_t c) { return c ^ 0xFFFFFFFFu; }
+
+/* Logs the reason, closes the snapshot file, and bails out.
+   GCC/Clang string-concatenation with __VA_ARGS__ keeps printf formatting. */
+#pragma pack(push, 1)
+struct SnapHdr {
+  uint32_t magic, items, blsize;
+  uint32_t blockCnt, allowCnt, duplicates;
+  uint32_t rawLen, compLen, crc;
+  uint16_t ver;
+};
+#pragma pack(pop)
+
+#define SNAP_FAIL(...)                                        \
+  do {                                                        \
+    LOG_WRN("Snapshot rejected: " __VA_ARGS__);               \
+    f.close();                                                \
+    return false;                                             \
+  } while (0)
+
+#define SNAP_PATH DATA_DIR "/blsnap.bin"
+#define SNAP_MAGIC 0x314C4253   // "SBL1"
+#define SNAP_VER   1
+
+/* Persist the used portion of the arena, compressed. Called after every
+ * successful download; LittleFS wear-leveling makes 1 write/day trivial. */
+static void saveSnapshot() {
+  if (itemsLoaded < 3 || blocklistSize < 4096) { LOG_WRN("Snap skip: tiny"); return; }
+
+  // LittleFS space check (worst-case encoding: every entry unmatched)
+  uint32_t worstCase = blocklistSize + itemsLoaded * 2 + sizeof(SnapHdr) + 4096;
+  uint32_t freeFs = STORAGE.totalBytes() - STORAGE.usedBytes();
+  if (freeFs < worstCase) {
+    LOG_WRN("Snap skipped: flash free %uKB < needed ~%uKB",
+            (unsigned)(freeFs / 1024), (unsigned)(worstCase / 1024));
+    return;
+  }
+
+  // corruption tripwire accumulators
+  uint32_t nameBytes  = 0;
+  uint32_t matchBytes = 0;
+
+  SnapHdr h; memset(&h, 0, sizeof(h));
+  h.magic = SNAP_MAGIC; h.ver = SNAP_VER;
+  h.items = itemsLoaded; h.blsize = blocklistSize;
+  h.blockCnt = blockCnt; h.allowCnt = allowCnt; h.duplicates = duplicates;
+
+  char tmpPath[80];
+  snprintf(tmpPath, sizeof(tmpPath), "%s.tmp", SNAP_PATH);
+
+  File f = STORAGE.open(tmpPath, FILE_WRITE);
+  if (!f) { LOG_ERR("Snap OPEN FAILED: %s", tmpPath); return; }
+  f.write((uint8_t*)&h, sizeof(h));              // placeholder header, finalized below
+
+  uint32_t crc      = crc32_begin();
+  uint32_t encBytes = 0;
+  const char* prev    = "";
+  size_t      prevLen = 0;
+  bool ok = true;
+  uint32_t t0 = millis();
+
+  for (uint32_t i = 0; i < itemsLoaded && ok; i++) {
+    const char* cur    = storage + ptrs[i];
+    size_t      maxCur = blocklistSize - ptrs[i];
+    size_t      cl     = strnlen(cur, maxCur);     // BOUNDED strlen
+
+    if (cl >= maxCur) {                            // unterminated entry!
+      LOG_ERR("Snap: entry %u UNTERMINATED at offset %u",
+              (unsigned)i, (unsigned)ptrs[i]);
+      LOG_SEND("first32: ");
+      for (size_t k = 0; k < 32 && ptrs[i] + k < blocklistSize; k++)
+        LOG_SEND("%02x ", cur[k]);
+      LOG_SEND("\n");
+      ok = false;
+      break;
+    }
+
+    size_t ml = 0;
+    while (ml < cl && ml < prevLen && ml < 255 && cur[ml] == prev[ml]) ml++;
+    size_t sl = cl - ml;
+    if (sl > 255) { ml -= (sl - 255); sl = 255; }
+
+    uint8_t lens[2] = { (uint8_t)ml, (uint8_t)sl };
+    crc = crc32_upd(crc, lens, 2);
+    crc = crc32_upd(crc, (const uint8_t*)cur + ml, sl);
+    ok = f.write(lens, 2) == 2 &&
+         (sl == 0 || f.write((const uint8_t*)cur + ml, sl) == sl);
+    encBytes   += 2 + sl;
+    nameBytes  += cl;
+    matchBytes += ml;
+    prev = cur; prevLen = cl;
+  }
+
+  // corruption tripwire: encoded stream can never exceed names + 2B/entry
+  if (encBytes > nameBytes + itemsLoaded * 2 + 16) {
+    f.close();
+    STORAGE.remove(tmpPath);
+    LOG_ERR("Snap ABORTED: encoder wrote %luKB for %luKB of names "
+            "(entries=%u matched=%luKB) - memory corruption suspected",
+            (unsigned long)(encBytes / 1024), (unsigned long)(nameBytes / 1024),
+            (unsigned)itemsLoaded, (unsigned long)(matchBytes / 1024));
+    return;                                        // flash untouched
+  }
+
+  if (ok) {
+    h.rawLen = encBytes;
+    h.crc    = crc32_end(crc);
+    f.seek(0);
+    f.write((uint8_t*)&h, sizeof(h));              // finalize header
+  }
+  f.close();
+
+  if (!ok) {
+    STORAGE.remove(tmpPath);
+    LOG_WRN("Snapshot encode failed - removed");
+    return;
+  }
+
+  STORAGE.remove(SNAP_PATH);                       // drop previous generation
+  if (!STORAGE.rename(tmpPath, SNAP_PATH)) {
+    LOG_ERR("Snap rename %s -> %s failed", tmpPath, SNAP_PATH);
+    STORAGE.remove(tmpPath);
+    return;
+  }
+
+    LOG_INF("Snapshot saved: %u domains, %luKB -> %luKB (%lu s) "
+          "[names %luKB, prefix-matched %luKB]",
+          (unsigned)(itemsLoaded - 2), (unsigned long)(blocklistSize / 1024),
+          (unsigned long)(encBytes / 1024), (unsigned long)((millis() - t0) / 1000),
+          (unsigned long)(nameBytes / 1024), (unsigned long)(matchBytes / 1024));
+}
+
+/* Restore arena from snapshot. No WiFi / no valid clock required.
+ * The sorted pointer table is rebuilt by walking the NUL-separated
+ * entries, then verified against the stored item count. */
+static bool loadSnapshot() {
+  File f = STORAGE.open(SNAP_PATH, FILE_READ);
+  if (!f) { LOG_INF("No snapshot yet (%s)", SNAP_PATH); return false; }
+
+  SnapHdr h;
+  if (f.read((uint8_t*)&h, sizeof(h)) != sizeof(h))
+    SNAP_FAIL("header read");
+  if (h.magic != SNAP_MAGIC)
+    SNAP_FAIL("bad magic");
+  if (h.ver   != SNAP_VER)
+    SNAP_FAIL("version %u", h.ver);
+  if (h.items < 2 || h.items > maxDomains)
+    SNAP_FAIL("item count %u", h.items);
+  if (h.blsize == 0 || h.blsize > storageSize)
+    SNAP_FAIL("arena %luKB exceeds storage %luKB",
+              (unsigned long)(h.blsize / 1024), (unsigned long)(storageSize / 1024));
+
+  memset(ptrs, 0, (maxDomains + 2) * sizeof(uint32_t));
+  uint32_t crc = crc32_begin();
+  uint32_t pos = 0, idx = 0, enc = 0;
+  uint32_t prevPtr = 0;
+  bool havePrev = false, ok = true;
+
+  while (idx < h.items && ok) {
+    uint8_t lens[2];
+    if (f.read(lens, 2) != 2) { ok = false; break; }
+    crc = crc32_upd(crc, lens, 2); enc += 2;
+    size_t ml = lens[0], sl = lens[1];
+
+    ptrs[idx] = pos;
+    if (ml) {                                   // shared prefix from neighbour
+      if (!havePrev || ml > strlen(storage + prevPtr)) { ok = false; break; }
+      memcpy(storage + pos, storage + prevPtr, ml);
+    }
+    if (sl) {
+      if (pos + ml + sl + 1 > storageSize) { ok = false; break; }
+      if (f.read((uint8_t*)storage + pos + ml, sl) != sl) { ok = false; break; }
+      crc = crc32_upd(crc, (const uint8_t*)storage + pos + ml, sl);
+    }
+    storage[pos + ml + sl] = 0;
+    enc += sl;
+    prevPtr = pos; havePrev = true;
+    pos += ml + sl + 1;
+    idx++;
+  }
+  crc = crc32_end(crc);
+  f.close();
+
+  if (!ok || idx != h.items || pos != h.blsize || crc != h.crc) {
+    LOG_WRN("Snapshot invalid (%s)",
+            crc != h.crc ? "CRC" : idx != h.items ? "count" : "bounds");
+    return false;
+  }
+  ptrs[idx] = pos;                              // trailing sentinel
+  blocklistSize = h.blsize;  itemsLoaded = h.items;
+  blockCnt = h.blockCnt;     allowCnt = h.allowCnt; duplicates = h.duplicates;
+  lastLoadMs = millis();
+  startupFailure[0] = 0;
+  LOG_ALT("Restored %lu domains (%s) from snapshot", itemsLoaded - 2, fmtSize(blocklistSize));
+  return true;
+}
+
 /* Reset storage to the primed ("!" + "#") state so a retry never inherits
  * partial data from an interrupted download (dedupe counts, truncation). */
 static void resetBlocklistStorage() {
   memset(ptrs, 0, (maxDomains + 2) * sizeof(uint32_t));
-  memset(storage, 0, maxDomLen + 8);
-  memcpy(storage, "!", 1);      // sentinel: guarantees ptrs[0] != real entry
+  memset(storage, 0, storageSize);            // ← FULL WIPE (was: maxDomLen + 8)
+  memcpy(storage, "!", 1);
   blocklistSize = 2;
   itemsLoaded = 1;
-  addDomain(0, "#", 1);         // second sentinel, also sorts before domains
+  addDomain(0, "#", 1);
 }
 
 /* Block until WiFi is up AND system time is sane (post-NTP).
@@ -462,14 +710,33 @@ static bool waitForNetworkAndTime(uint32_t timeoutMs) {
 
 static bool loadBlockList(const char* reason) {
   bool res = false;
+  bool restored = false;
   if (!downloading) {
-    downloading = true;                       // claim immediately
+    downloading = true;
     duplicates = 0;
     updateConfigVect("loadProg", "0.0%");
     LOG_INF("%s load of latest blocklist", reason);
 
-    if (waitForNetworkAndTime(15000)) {
+    /* instant restore needs neither WiFi nor valid clock */
+    if (!strcmp(reason, "Initial") || !strcmp(reason, "TimeSynced")) {
+      restored = loadSnapshot();
+      if (restored)
+        updateConfigVect("loadProg", "From Flash");   // honest UI state
+    }
+
+    /* REPLACE semantics: a successful full download rebuilds the list from
+     * scratch, so upstream removals and list switches take effect.
+     * Rollback safety: the previous generation lives in the flash snapshot.
+     * Without a snapshot (very first ever run) we fall back to merge-mode,
+     * because there is nothing to roll back to. */
+    bool canReplace = restored || STORAGE.exists(SNAP_PATH);
+    uint32_t waitMs = (restored || canReplace || strlen(ST_SSID)) ? 5000 : 1000;
+
+    if (waitForNetworkAndTime(waitMs)) {
       for (int tries = 1; tries <= 3 && !res; tries++) {
+        if (canReplace && itemsLoaded > 2) {         // fresh build, not merge
+          resetBlocklistStorage();
+        }
         res = downloadBlockList();
         if (!res && tries < 3) {
           LOG_WRN("Attempt %d failed - resetting and retrying", tries);
@@ -477,19 +744,45 @@ static bool loadBlockList(const char* reason) {
           delay(2000);
         }
       }
-      if (res) { lastLoadMs = millis(); startupFailure[0] = 0; }
-      else if (!lastLoadMs) {
-        snprintf(startupFailure, SF_LEN, STARTUP_FAIL "Blocklist URL %s failed to load", fileURL);
-        LOG_WRN("%s", startupFailure);
-      } else {
-        LOG_WRN("%s load failed - keeping existing %lu-domain blocklist", reason, itemsLoaded - 2);
-      }
-      loadCustom();
-    } else {
-      LOG_WRN("Network/time not ready within 15 s (%s)", netIsConnected() ? "clock" : "wifi");
-    }
 
-    downloading = false;                      // ALWAYS released, any path
+      if (res) {
+        lastLoadMs = millis();
+        startupFailure[0] = 0;
+        saveSnapshot();                              // new generation persisted
+      } else if (canReplace) {
+        /* rebuild failed - reinstate previous generation from flash */
+        resetBlocklistStorage();
+        restored = loadSnapshot();
+        if (itemsLoaded <= 2) {
+          if (!strlen(ST_SSID))
+            LOG_ALT("First-time setup: set router SSID/Password in Network Settings");
+          else {
+            snprintf(startupFailure, SF_LEN,
+                     STARTUP_FAIL "Blocklist URL %s failed to load", fileURL);
+            LOG_WRN("%s", startupFailure);
+          }
+        } else {
+          LOG_WRN("%s load failed - serving previous %lu-domain list",
+                  reason, itemsLoaded - 2);
+        }
+      } else if (itemsLoaded <= 2) {
+        if (!strlen(ST_SSID)) {
+          LOG_ALT("First-time setup: set router SSID/Password in Network Settings");
+        } else {
+          snprintf(startupFailure, SF_LEN,
+                   STARTUP_FAIL "Blocklist URL %s failed to load", fileURL);
+          LOG_WRN("%s", startupFailure);
+        }
+      } else {
+        LOG_WRN("%s load failed - keeping existing %lu-domain blocklist (merge mode)",
+                reason, itemsLoaded - 2);
+      }
+      loadCustom();                                  // replay user rules either way
+    } else {
+      LOG_WRN("Network/time not ready (%s)",
+              strlen(ST_SSID) ? (netIsConnected() ? "clock" : "wifi") : "unconfigured");
+    }
+    downloading = false;
   } else LOG_WRN("Ignore request as download in progress");
   return res;
 }
@@ -505,7 +798,6 @@ static void blTask(void *parameter) {
     }
   }
 }
-///////////////////////////////////////////////////
 
 void appSetup() {
   
@@ -547,7 +839,6 @@ void appSetup() {
   blQueue = xQueueCreate(4, sizeof(BlReq_t));
   if (blQueue) xTaskCreatePinnedToCore(blTask, "blTask", 1024 * 10, NULL, 2, NULL, 1);
 }
-
 
 /************************ webServer callbacks *************************/
 bool updateAppStatus(const char* variable, const char* value, bool fromUser) {
@@ -659,11 +950,9 @@ esp_err_t appSpecificSustainHandler(httpd_req_t* req) {
   return ESP_OK;
 }
 
-
 void externalAlert(const char* subject, const char* message) {
   // alert any configured external servers
 }
-
 
 bool appDataFiles() {
   // callback from setupAssist.cpp, for any app specific files
@@ -695,29 +984,29 @@ void OTAprereq() {
   stopPing();
 }
 
-/************** default app configuration **************/
+/************** Default App Configuration **************/
 const char* appConfig = R"~(
 restart~~99~T~na
-ST_SSID~~0~T~Wifi SSID name
-ST_Pass~~0~T~Wifi SSID password
-ST_ip~~0~T~Static IP address
-ST_gw~~0~T~Router IP address
-ST_sn~255.255.255.0~0~T~Router subnet
-ST_ns1~1.1.1.1~0~T~DNS server
-ST_ns2~8.8.8.8~0~T~Alt DNS server
-AP_Pass~~0~T~AP Password
-AP_ip~~0~T~AP IP Address if not 192.168.4.1
-AP_sn~~0~T~AP subnet
-AP_gw~~0~T~AP gateway
-useHttps~0~0~C~Enable HTTPS connection to app
-allowAP~0~0~C~Allow simultaneous AP
+ST_SSID~~0~T~Wifi SSID
+ST_Pass~~0~T~Wifi Password
+ST_ip~~0~T~Device IP address
+ST_gw~~0~T~Gateway IP address
+ST_sn~255.255.255.0~0~T~Network Subnet
+ST_ns1~1.1.1.1~0~T~Main DNS server
+ST_ns2~1.0.0.1~0~T~Alt DNS server
+AP_Pass~~0~T~AP Mode Wifi Password
+AP_ip~~0~T~AP Mode IP Address (Blank=192.168.4.1)
+AP_sn~~0~T~AP Mode Subnet
+AP_gw~~0~T~AP Mode Gateway (Maybe Useless)
+useHttps~0~0~C~Enable HTTPS connection on This Site
+allowAP~1~0~C~Enable AP Mode If Fail to Connect SSID (SW Not Worked)
 timezone~KST-9~1~T~Timezone string: tinyurl.com/TZstring
 logType~0~99~N~Output log selection
-Auth_Name~~0~T~Optional user name for web page login
-Auth_Pass~~0~T~Optional web page password
-formatIfMountFailed~0~1~C~Format file system on failure
+Auth_Name~~0~T~Admin ID for WebPage
+Auth_Pass~~0~T~Admin PW for WebPage
+formatIfMountFailed~0~1~C~Format File System on Failure
 wifiTimeoutSecs~30~0~N~WiFi connect timeout (secs)
-alarmHour~4~1~N~Hour of day for blocklist update
+alarmHour~4~1~N~Hour of Day when Run Blocklist Update
 usePing~1~0~C~Use ping
 maxDomains~250~1~N~Max number of domains (* 1000)
 minMemory~128~1~N~Minimum free memory (KB)
