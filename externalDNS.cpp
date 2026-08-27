@@ -17,10 +17,12 @@
 #include <lwip/sockets.h>   // socket/sendto/recvfrom/setsockopt/close
 
 #define DNS_DEFAULT_PORT   53    // listening port (also reply source port)
-#define CACHE_SIZE         20    // positive-response cache slots (round-robin)
+//#define CACHE_SIZE         20    // positive-response cache slots (round-robin)
+#define CACHE_SIZE         100    // positive-response cache slots (round-robin) (Each Entry Using 270b SRAM) (Big Cache noticeably cuts repeat-query latency and upstream chatter)
 #define DEFAULT_TTL        300000 // cache lifetime, ms
 #define MAX_HOSTNAME       256    // longest name we accept from clients
-#define RESOLVE_TIMEOUT_MS 1500   // per-upstream-server attempt
+//#define RESOLVE_TIMEOUT_MS 1500   // per-upstream-server attempt
+#define RESOLVE_TIMEOUT_MS 800   // per-upstream-server attempt
 
 typedef struct {
     uint16_t id;       // transaction ID (echoed in reply)
@@ -77,6 +79,7 @@ static int processDNSquery(const uint8_t *rx, int len, uint8_t *tx, int txSize) 
    *   SERVFAIL -> RCODE 2, zero answers (upstream sick - NEVER cached) */
   IPAddress ansIP;
   DnsResult r = checkBlocklist(domain, ansIP);
+  LOG_INF("Q '%s' type=%u -> %d", domain, qtype, (int)r); // If you want to Diable DNS Result Log Disable this Line
 
   if (r == DNS_NXDOMAIN || r == DNS_SERVFAIL) {
     res->flags = htons(0x8180 | ((r == DNS_NXDOMAIN) ? 0x0003 : 0x0002));
@@ -108,20 +111,43 @@ static int processDNSquery(const uint8_t *rx, int len, uint8_t *tx, int txSize) 
       res->ancount = htons(0);
     }
   }
-  else {                                      // DNS_RESOLVED
-    if (qtype == 0x0001) {
+    else {                                        // DNS_RESOLVED
+    if (qtype == 0x0001) {                      // A: unchanged, uses ansIP
       res->flags = htons(0x8180);
       res->ancount = htons(1);
       tx[resp_offset++] = 0xC0; tx[resp_offset++] = 0x0C;
       tx[resp_offset++] = 0x00; tx[resp_offset++] = 0x01;
       tx[resp_offset++] = 0x00; tx[resp_offset++] = 0x01;
-      tx[resp_offset++] = 0x00; tx[resp_offset++] = 0x00; // TTL 60s
+      tx[resp_offset++] = 0x00; tx[resp_offset++] = 0x00;
       tx[resp_offset++] = 0x00; tx[resp_offset++] = 0x3C;
       tx[resp_offset++] = 0x00; tx[resp_offset++] = 0x04;
       tx[resp_offset++] = ansIP[0]; tx[resp_offset++] = ansIP[1];
       tx[resp_offset++] = ansIP[2]; tx[resp_offset++] = ansIP[3];
-    } else {                                  // IPv4-only forwarder -> NODATA,
-      res->flags = htons(0x8180);             // lets client fall back to A
+    } else if (qtype == 0x001C) {               // AAAA: real resolution now
+      uint8_t a6[16];
+      bool have = false;
+      if (!strcmp(domain, "localhost")) {       // RFC 6761 companion rule
+        memset(a6, 0, 16); a6[15] = 1;          // ::1
+        have = true;
+      } else {
+        have = resolveAAAA(domain, a6);         // false => NODATA (client uses A)
+      }
+      if (have) {
+        res->ancount = htons(1);
+        tx[resp_offset++] = 0xC0; tx[resp_offset++] = 0x0C;
+        tx[resp_offset++] = 0x00; tx[resp_offset++] = 0x1C;
+        tx[resp_offset++] = 0x00; tx[resp_offset++] = 0x01;
+        tx[resp_offset++] = 0x00; tx[resp_offset++] = 0x00;
+        tx[resp_offset++] = 0x00; tx[resp_offset++] = 0x3C;
+        tx[resp_offset++] = 0x00; tx[resp_offset++] = 0x10;
+        memcpy(&tx[resp_offset], a6, 16);
+        resp_offset += 16;
+      } else {
+        res->flags = htons(0x8180);
+        res->ancount = htons(0);
+      }
+    } else {                                    // other types -> NODATA
+      res->flags = htons(0x8180);
       res->ancount = htons(0);
     }
   }
@@ -145,6 +171,7 @@ static void dnsTask(void *parameter) {
     int len = recvfrom(dnsSock, rxbuf, sizeof(rxbuf), 0, (struct sockaddr *)&cli, &clilen);
     if (len < (int)sizeof(dns_header_t)) continue;
     int txLen = processDNSquery(rxbuf, len, txbuf, sizeof(txbuf));
+    LOG_INF("DNS q=%dB r=%dB", len, txLen > 0 ? txLen : 0);   // If you want to Diable DNS Result Log Disable this Line
     if (txLen > 0) sendto(dnsSock, txbuf, txLen, 0, (struct sockaddr *)&cli, clilen);
   }
 }
@@ -180,51 +207,53 @@ void prepDNS() {
 
 /* Tiny positive-only cache. Negative results (NXDOMAIN/SERVFAIL) are never
  * cached so recovery after a WAN outage is immediate. */
+/* Family-tagged positive cache: fam 1 = A (4B), 28 = AAAA (16B).
+ * Negative results are never cached (fast recovery after WAN outage). */
 struct CacheEntry {
   char hostname[MAX_HOSTNAME] = {0};
-  IPAddress ip;
-  uint32_t expiry;                            // millis() deadline
+  uint8_t fam;                                // 1 or 28
+  uint8_t addr[16];                           // 4 or 16 bytes used
+  uint32_t expiry;
 };
 static CacheEntry dnsCache[CACHE_SIZE];
 
-static bool cacheGet(const char* host, IPAddress& ip) {
+static bool cacheGet(const char* host, uint8_t fam, uint8_t* addr) {
   uint32_t now = millis();
   for (int i = 0; i < CACHE_SIZE; i++) {
-    if (dnsCache[i].hostname[0] != '\0' && !strcmp(dnsCache[i].hostname, host)) {
-      if ((int32_t)(now - dnsCache[i].expiry) >= 0) dnsCache[i].hostname[0] = 0; // expired
-      else { ip = dnsCache[i].ip; return true; }
+    if (dnsCache[i].hostname[0] && dnsCache[i].fam == fam &&
+        !strcmp(dnsCache[i].hostname, host)) {
+      if ((int32_t)(now - dnsCache[i].expiry) >= 0) dnsCache[i].hostname[0] = 0;
+      else { memcpy(addr, dnsCache[i].addr, fam == 1 ? 4 : 16); return true; }
     }
   }
   return false;
 }
 
-static void cachePut(const char* host, const IPAddress& ip) {
-  static int cacheIndex = 0;                  // round-robin eviction
-  strncpy(dnsCache[cacheIndex].hostname, host, MAX_HOSTNAME - 1);
-  dnsCache[cacheIndex].hostname[MAX_HOSTNAME - 1] = 0;
-  dnsCache[cacheIndex].ip = ip;
-  dnsCache[cacheIndex].expiry = millis() + DEFAULT_TTL;
-  cacheIndex = (cacheIndex + 1) % CACHE_SIZE;
+static void cachePut(const char* host, uint8_t fam, const uint8_t* addr) {
+  static int ci = 0;
+  strncpy(dnsCache[ci].hostname, host, MAX_HOSTNAME - 1);
+  dnsCache[ci].hostname[MAX_HOSTNAME - 1] = 0;
+  dnsCache[ci].fam = fam;
+  memcpy(dnsCache[ci].addr, addr, fam == 1 ? 4 : 16);
+  dnsCache[ci].expiry = millis() + DEFAULT_TTL;
+  ci = (ci + 1) % CACHE_SIZE;
 }
 
-DnsResult resolveDomainStatus(const char* host, IPAddress& retIP) {
-  retIP = IPAddress(0, 0, 0, 0);
+static bool isLocalName(const char* host) {
+  size_t n = strlen(host);
+  if (strstr(host, "wpad") == host) return true;
+  if (n >= 5 && !strcmp(host + n - 5, ".home")) return true;
+  if (n >= 6 && !strcmp(host + n - 6, ".local")) return true;
+  return false;
+}
 
-  /* Local-discovery names must never leave the LAN (RFC 6761/6762 neighbours) */
-  bool isLocal = false;
-  size_t hostLen = strlen(host);
-  if (strstr(host, "wpad") == host) isLocal = true;
-  else if (hostLen >= 5 && !strcmp(host + hostLen - 5, ".home")) isLocal = true;
-  else if (hostLen >= 6 && !strcmp(host + hostLen - 6, ".local")) isLocal = true;
-  if (isLocal) { LOG_VRB("Ignore internal discovery: %s", host); return DNS_NXDOMAIN; }
-
-  if (cacheGet(host, retIP)) {
-    LOG_VRB("Resolved %s using cache to %d.%d.%d.%d", host, retIP[0], retIP[1], retIP[2], retIP[3]);
-    return DNS_RESOLVED;
-  }
-
-  /* Try each configured forwarder once; failover only on transport failure.
-   * A definitive RCODE from anyone ends the walk. */
+/* Query upstreams for 'qtype' (1=A, 28=AAAA). On DNS_RESOLVED copies the
+ * record's RDATA (4/16 bytes) to rdata and sets *rlen. Walks primary->backup;
+ * any definitive RCODE stops the walk. */
+static DnsResult queryUpstream(const char* host, uint16_t qtype,
+                               uint8_t* rdata, size_t rcap, size_t* rlen) {
+  *rlen = 0;
+  const uint8_t wantLen = (qtype == 28) ? 16 : 4;
   const char* servers[] = {ST_ns1, ST_ns2};
   for (int s = 0; s < 2; s++) {
     if (!servers[s][0]) continue;
@@ -238,82 +267,107 @@ DnsResult resolveDomainStatus(const char* host, IPAddress& retIP) {
     tv.tv_usec = (RESOLVE_TIMEOUT_MS % 1000) * 1000;
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
-    /* Build query: 12B header + QNAME labels + QTYPE=A + QCLASS=IN */
-    uint16_t qid = (uint16_t)esp_random();   // per-call random: safe under concurrency
+    uint16_t qid = (uint16_t)esp_random();
     uint8_t qbuf[280], rbuf[512];
     size_t pos = 12;
     qbuf[0] = qid >> 8; qbuf[1] = qid & 0xFF;
-    qbuf[2] = 0x01; qbuf[3] = 0x00;          // RD=1 (recurse please)
-    qbuf[4] = 0; qbuf[5] = 1;                // QDCOUNT = 1
-    memset(qbuf + 6, 0, 6);                  // AN/NS/AR = 0
+    qbuf[2] = 0x01; qbuf[3] = 0x00;              // RD=1
+    qbuf[4] = 0; qbuf[5] = 1;                    // QDCOUNT=1
+    memset(qbuf + 6, 0, 6);
     const char* hp = host;
     bool ok = true;
     while (*hp) {
       const char* dot = strchr(hp, '.');
       size_t lbl = dot ? (size_t)(dot - hp) : strlen(hp);
       if (!lbl || lbl > 63 || pos + lbl + 5 > sizeof(qbuf)) { ok = false; break; }
-      qbuf[pos++] = (uint8_t)lbl;            // length-prefixed label
+      qbuf[pos++] = (uint8_t)lbl;
       memcpy(qbuf + pos, hp, lbl);
       pos += lbl;
       hp += lbl + (dot ? 1 : 0);
     }
     if (!ok) { close(fd); return DNS_SERVFAIL; }
-    qbuf[pos++] = 0;                         // root label terminates QNAME
-    qbuf[pos++] = 0; qbuf[pos++] = 1;        // QTYPE  = A
-    qbuf[pos++] = 0; qbuf[pos++] = 1;        // QCLASS = IN
-
-    struct sockaddr_in dst;
-    memset(&dst, 0, sizeof(dst));
-    dst.sin_family = AF_INET;
-    dst.sin_port = htons(DNS_DEFAULT_PORT);  // upstream also speaks UDP/53
-    dst.sin_addr.s_addr = srv;
+    qbuf[pos++] = 0;
+    qbuf[pos++] = (uint8_t)(qtype >> 8); qbuf[pos++] = (uint8_t)qtype;
+    qbuf[pos++] = 0; qbuf[pos++] = 1;            // QCLASS = IN
 
     DnsResult res = DNS_SERVFAIL;
     bool haveAnswer = false;
-    if (sendto(fd, qbuf, pos, 0, (struct sockaddr*)&dst, sizeof(dst)) == (ssize_t)pos) {
+    struct sockaddr_in dst;
+    memset(&dst, 0, sizeof(dst));
+    dst.sin_family = AF_INET;
+    dst.sin_port = htons(DNS_DEFAULT_PORT);
+    dst.sin_addr.s_addr = srv;
+
+        if (sendto(fd, qbuf, pos, 0, (struct sockaddr*)&dst, sizeof(dst)) == (ssize_t)pos) {
       struct sockaddr_in from;
       socklen_t fl = sizeof(from);
-      ssize_t rlen = recvfrom(fd, rbuf, sizeof(rbuf), 0, (struct sockaddr*)&from, &fl);
-      /* Accept only: long enough, matching ID, QR=1 (genuine response) */
-      if (rlen >= 12 && ((uint16_t)rbuf[0] << 8 | rbuf[1]) == qid && (rbuf[2] & 0x80)) {
+      ssize_t rxLen = recvfrom(fd, rbuf, sizeof(rbuf), 0, (struct sockaddr*)&from, &fl);
+      /* Accept only: long enough, matching transaction ID, QR=1 (response) */
+      if (rxLen >= 12 && ((uint16_t)rbuf[0] << 8 | rbuf[1]) == qid && (rbuf[2] & 0x80)) {
         uint8_t rcode = rbuf[3] & 0x0F;
-        if (rcode == 3) res = DNS_NXDOMAIN;
-        else if (rcode == 0) {
-          /* Walk past echoed question, then scan answer RRs for the first
-           * A record; CNAME chains are skipped via RDLENGTH stepping. */
+        if (rcode == 3) {
+          res = DNS_NXDOMAIN;
+        } else if (rcode == 0) {
           size_t q = 12;
-          bool compressed = false;
-          while (q < (size_t)rlen && rbuf[q] != 0) {
-            if ((rbuf[q] & 0xC0) == 0xC0) { q += 2; compressed = true; break; }
+          bool cmp = false;
+          while (q < (size_t)rxLen && rbuf[q] != 0) {          // skip question
+            if ((rbuf[q] & 0xC0) == 0xC0) { q += 2; cmp = true; break; }
             q += 1 + rbuf[q];
           }
-          if (!compressed) q++;              // consume root byte
-          q += 4;                            // QTYPE + QCLASS
+          if (!cmp) q++;                                       // root byte
+          q += 4;                                              // QTYPE+QCLASS
           uint16_t ancount = ((uint16_t)rbuf[6] << 8) | rbuf[7];
-          for (uint16_t a = 0; a < ancount && q + 10 <= (size_t)rlen; a++) {
+          for (uint16_t a = 0; a < ancount && q + 10 <= (size_t)rxLen; a++) {
             if ((rbuf[q] & 0xC0) == 0xC0) q += 2;              // compressed owner
-            else { while (q < (size_t)rlen && rbuf[q]) q += 1 + rbuf[q]; q++; }
-            if (q + 10 > (size_t)rlen) break;
-            uint16_t rtype = ((uint16_t)rbuf[q] << 8) | rbuf[q + 1];
-            uint16_t rdlen = ((uint16_t)rbuf[q + 8] << 8) | rbuf[q + 9];
-            q += 10;                                            // TYPE+CLASS+TTL+RDLEN
-            if (rtype == 1 && rdlen == 4 && q + 4 <= (size_t)rlen) {
-              retIP = IPAddress(rbuf[q], rbuf[q + 1], rbuf[q + 2], rbuf[q + 3]);
+            else { while (q < (size_t)rxLen && rbuf[q]) q += 1 + rbuf[q]; q++; }
+            if (q + 10 > (size_t)rxLen) break;
+            uint16_t rt  = ((uint16_t)rbuf[q] << 8) | rbuf[q + 1];
+            uint16_t rdl = ((uint16_t)rbuf[q + 8] << 8) | rbuf[q + 9];
+            q += 10;                                           // TYPE+CLASS+TTL+RDLEN
+            if (rt == qtype && rdl == wantLen && q + rdl <= (size_t)rxLen) {
+              memcpy(rdata, rbuf + q, rdl);
+              *rlen = rdl;                                     // OUT param - now unambiguous
               res = DNS_RESOLVED;
               break;
             }
-            q += rdlen;                      // skip CNAME/others, keep scanning
+            q += rdl;                          // CNAME/others: skip, keep scanning
           }
-          if (res != DNS_RESOLVED) res = DNS_NXDOMAIN; // NOERROR+NODATA ~= NXDOMAIN
+          if (res != DNS_RESOLVED) res = DNS_NXDOMAIN;   // NODATA ~= NXDOMAIN
         }
-        /* rcode 1,2,4,5 fall through as SERVFAIL */
-        haveAnswer = true;                   // authoritative enough - stop failover
+        haveAnswer = true;                     // definitive reply - stop failover
       }
     }
     close(fd);
     if (haveAnswer) return res;
   }
-  return DNS_SERVFAIL;                       // no upstream answered in time
+  return DNS_SERVFAIL;                         // no upstream answered in time
+}
+
+DnsResult resolveDomainStatus(const char* host, IPAddress& retIP) {
+  retIP = IPAddress(0, 0, 0, 0);
+  if (isLocalName(host)) { LOG_VRB("Ignore internal discovery: %s", host); return DNS_NXDOMAIN; }
+  uint8_t a[4];
+  if (cacheGet(host, 1, a)) {
+    retIP = IPAddress(a[0], a[1], a[2], a[3]);
+    LOG_VRB("Resolved %s (cache)", host);
+    return DNS_RESOLVED;
+  }
+  uint8_t a4[4]; size_t rl = 0;
+  DnsResult r = queryUpstream(host, 1, a4, sizeof(a4), &rl);
+  if (r == DNS_RESOLVED && rl == 4) {
+    retIP = IPAddress(a4[0], a4[1], a4[2], a4[3]);
+    cachePut(host, 1, a4);
+  }
+  return r;
+}
+
+bool resolveAAAA(const char* host, uint8_t out[16]) {
+  if (isLocalName(host)) return false;
+  if (cacheGet(host, 28, out)) return true;
+  size_t rl = 0;
+  DnsResult r = queryUpstream(host, 28, out, 16, &rl);
+  if (r == DNS_RESOLVED && rl == 16) { cachePut(host, 28, out); return true; }
+  return false;
 }
 
 /* Legacy synchronous wrapper retained for checkDomain()'s "must resolve
