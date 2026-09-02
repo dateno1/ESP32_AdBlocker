@@ -79,7 +79,7 @@ static int processDNSquery(const uint8_t *rx, int len, uint8_t *tx, int txSize) 
    *   SERVFAIL -> RCODE 2, zero answers (upstream sick - NEVER cached) */
   IPAddress ansIP;
   DnsResult r = checkBlocklist(domain, ansIP);
-  LOG_INF("Q '%s' type=%u -> %d", domain, qtype, (int)r); // If you want to Diable DNS Result Log Disable this Line
+  if (dnsDebugOn) LOG_INF("Q '%s' type=%u -> %d", domain, qtype, (int)r);
 
   if (r == DNS_NXDOMAIN || r == DNS_SERVFAIL) {
     res->flags = htons(0x8180 | ((r == DNS_NXDOMAIN) ? 0x0003 : 0x0002));
@@ -171,7 +171,7 @@ static void dnsTask(void *parameter) {
     int len = recvfrom(dnsSock, rxbuf, sizeof(rxbuf), 0, (struct sockaddr *)&cli, &clilen);
     if (len < (int)sizeof(dns_header_t)) continue;
     int txLen = processDNSquery(rxbuf, len, txbuf, sizeof(txbuf));
-    LOG_INF("DNS q=%dB r=%dB", len, txLen > 0 ? txLen : 0);   // If you want to Diable DNS Result Log Disable this Line
+    if (dnsDebugOn) LOG_INF("DNS q=%dB r=%dB", len, txLen > 0 ? txLen : 0);
     if (txLen > 0) sendto(dnsSock, txbuf, txLen, 0, (struct sockaddr *)&cli, clilen);
   }
 }
