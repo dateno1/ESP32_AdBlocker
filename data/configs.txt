@@ -7,42 +7,45 @@ Auth_Name~~0~T~Admin ID for WebPage
 Auth_Pass~~0~T~Admin PW for WebPage
 ST_Pass~***********~0~T~Wifi Password
 ST_SSID~~0~T~Wifi SSID
-ST_gw~~0~T~Gateway IP address
-ST_ip~~0~T~Device IP address
-ST_ns1~1.1.1.1~0~T~Main DNS server
-ST_ns2~1.0.0.1~0~T~Alt DNS server
+ST_gw~~0~T~Gateway IP Address
+ST_ip~~0~T~Device IP Address
+ST_ns1~1.1.1.1~0~T~Main DNS Server
+ST_ns2~1.0.0.1~0~T~Alt DNS Server
 ST_sn~255.255.255.0~0~T~Network Subnet
-alarmHour~4~1~N~Hour of Day when Run Blocklist Update
+alarmHour~4~1~N~Hour of Day when Run BlockList Update
 allowAP~1~0~C~Enable AP Mode If Fail to Connect SSID
-allowCnt~0~2~D~Allowed domains
+allowCnt~0~2~D~Allowed Domains
 appId~ESP32_AdBlocker~99~~na
-blockCnt~0~2~D~Blocked domains
+blockCnt~0~2~D~Blocked Domains
 cfgVer~5~99~T~na
-ethCS~-1~3~N~Ethernet CS pin
-ethInt~-1~3~N~Ethernet Interrupt pin
-ethMiso~-1~3~N~Ethernet SPI MISO pin
-ethMosi~-1~3~N~Ethernet SPI MOSI pin
-ethRst~-1~3~N~Ethernet Reset pin
-ethSclk~-1~3~N~Ethernet SPI clock pin
-fileURLc~https://dns.dateno1.com/hosts~2~D~Current URL for blocklist file
-fileURLn~~2~X~Enter new URL for blocklist file or domain
+dnsDebug~1~1~C~Enable DNS Debug Log
+ethCS~-1~3~N~Ethernet CS Pin
+ethInt~-1~3~N~Ethernet Interrupt Pin
+ethMiso~-1~3~N~Ethernet SPI MISO Pin
+ethMosi~-1~3~N~Ethernet SPI MOSI Pin
+ethRst~-1~3~N~Ethernet Reset Pin
+ethSclk~-1~3~N~Ethernet SPI Clock Pin
+fileURLc~https://dns.dateno1.com/hosts~2~D~Current URL for BlockList File
+fileURLn~~2~X~Enter New URL for BlockList File or Domain
 formatIfMountFailed~0~1~C~Format Filesystem on Failure
 hostName~ESP32_AdBlocker_001AB8858428~0~T~Device Host Name
-loadProg~0.0%~2~D~Blocklist download progress
-logType~0~99~N~Output log selection
-maxDomLen~100~1~N~Max length of domain name
-maxDomains~250~1~N~Max number of domains (* 1000)
-minMemory~128~1~N~Minimum free memory (KB)
-netMode~0~3~S:WiFi:Ethernet:Eth+AP~Network interface selection
+intTemp~0~2~D~Chip temperature (°C)
+loadProg~0.0%~2~D~BlockList Download Progress
+logType~0~99~N~Output Log Selection
+maxDomLen~100~1~N~Max Length of Domain Name
+maxDomains~250~1~N~Max Number of Domains (* 1000)
+minMemory~128~1~N~Minimum Free Memory (KB)
+netMode~0~3~S:WiFi:Ethernet:Eth+AP~Network Interface Selection
+netRSSI~0~2~D~WiFi Signal (dBm)
 restart~~99~T~na
-timezone~KST-9~1~T~Timezone string: tinyurl.com/TZstring
-uLoad~AddDomain~2~A~Add to blocklist
-useHttps~0~0~C~Enable HTTPS connection on This Site
-usePing~1~0~C~Use ping
-vLoad~DelDomain~2~A~Delete from blocklist
-wLoad~CheckDomain~2~A~Check if domain name is blocked
-wifiTimeoutSecs~30~0~N~WiFi connect timeout (secs)
-xStop~StopLoad~2~A~Stop Blocklist Load
-zLoad~Reload~2~A~Reload Blocklist
-zzCustom~Clear~2~A~Clear custom blocklist
+timezone~KST-9~1~T~Timezone String: tinyurl.com/TZstring
+uLoad~AddDomain~2~A~Add to BlockList
+useHttps~0~0~C~Enable HTTPS Connection on This Site
+usePing~1~0~C~Use Ping
+vLoad~DelDomain~2~A~Delete from BlockList
+wLoad~CheckDomain~2~A~Check If Domain Name is Blocked
+wifiTimeoutSecs~30~0~N~WiFi Connect Timeout (secs)
+xStop~StopLoad~2~A~Stop BlockList Load
+zLoad~Reload~2~A~Reload BlockList
+zzCustom~Clear~2~A~Clear Custom BlockList
 zzzAdblockOn~1~2~C~Enable AdBlocker
