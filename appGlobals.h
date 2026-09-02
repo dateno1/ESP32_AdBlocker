@@ -38,7 +38,7 @@
 #define MIN_PSRAM 8
 
 #define APP_NAME "ESP32_AdBlocker" // max 15 chars
-#define APP_VER "1.3"
+#define APP_VER "1.4"
 
 #define HTTP_CLIENTS 2 // http, ws
 #define MAX_STREAMS 0
@@ -107,6 +107,7 @@
 // for IPv6 Support
 bool resolveAAAA(const char* host, uint8_t out[16]); // true + 16-byte address on success
 
+extern bool dnsDebugOn;   // DNS query debug logging (web toggle)
 
 /******************** Function declarations *******************/
 
