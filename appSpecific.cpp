@@ -48,6 +48,8 @@ static bool   g_caTried = false;  // load-once flag
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 
+bool dnsDebugOn = true;   // DNS query debug logging (web toggle)
+
 static uint32_t binarySearch(const char* searchStr, bool doUpdate) {
   // binary split search
   // for an update, return 0 if found (duplicate) else return ptr
@@ -845,13 +847,18 @@ bool updateAppStatus(const char* variable, const char* value, bool fromUser) {
   // update vars from configs and browser input
   bool res = true;
   int intVal = atoi(value);
-  if (!strcmp(variable, "custom")) {
+    if (!strcmp(variable, "custom")) {
     // update config for latest stats to return on next main page call
-    char cntStr[20];
-    sprintf(cntStr, "%lu", blockCnt);
-    updateConfigVect("blockCnt", cntStr);
-    sprintf(cntStr, "%lu", allowCnt);
-    updateConfigVect("allowCnt", cntStr);
+    char valStr[16];
+    snprintf(valStr, sizeof(valStr), "%lu", blockCnt);
+    updateConfigVect("blockCnt", valStr);
+    snprintf(valStr, sizeof(valStr), "%lu", allowCnt);
+    updateConfigVect("allowCnt", valStr);
+    // live sensor readings, refreshed each time the page polls
+    snprintf(valStr, sizeof(valStr), "%0.1f", readInternalTemp());
+    updateConfigVect("intTemp", valStr);
+    snprintf(valStr, sizeof(valStr), "%d", netRSSI());
+    updateConfigVect("netRSSI", valStr);
   }
   else if (!strcmp(variable, "fileURLc")) strncpy(fileURL, value, IN_FILE_NAME_LEN - 1);
   else if (!strcmp(variable, "maxDomains")) maxDomains = intVal * 1000;
@@ -890,15 +897,16 @@ bool updateAppStatus(const char* variable, const char* value, bool fromUser) {
       strncpy(req.reason, "Manual", sizeof(req.reason) - 1);
       xQueueSend(blQueue, &req, 0);
     }
-  }
-  else if (fromUser && !strcmp(variable, "zzCustom")) {
+  } else if (fromUser && !strcmp(variable, "zzCustom")) {
     STORAGE.remove(CUSTOM_FILE_PATH);
     LOG_ALT("Deleted custom blocklist file");
-  }
-  else if (!strcmp(variable, "zzzAdblockOn")) {
+  } else if (!strcmp(variable, "zzzAdblockOn")) {
     adBlockOn = (bool)intVal;
     if (adBlockOn) LOG_ALT("Ad blocking enabled");
     else LOG_WRN("Ad blocking disabled");
+  } else if (!strcmp(variable, "dnsDebug")) {
+    dnsDebugOn = (bool)intVal;
+    LOG_ALT("DNS debug logging %s", dnsDebugOn ? "enabled" : "disabled");
   }
   return res;
 }
@@ -989,45 +997,48 @@ const char* appConfig = R"~(
 restart~~99~T~na
 ST_SSID~~0~T~Wifi SSID
 ST_Pass~~0~T~Wifi Password
-ST_ip~~0~T~Device IP address
-ST_gw~~0~T~Gateway IP address
+ST_ip~~0~T~Device IP Address
+ST_gw~~0~T~Gateway IP Address
 ST_sn~255.255.255.0~0~T~Network Subnet
-ST_ns1~1.1.1.1~0~T~Main DNS server
-ST_ns2~1.0.0.1~0~T~Alt DNS server
+ST_ns1~1.1.1.1~0~T~Main DNS Server
+ST_ns2~1.0.0.1~0~T~Alt DNS Server
 AP_Pass~~0~T~AP Mode Wifi Password
 AP_ip~~0~T~AP Mode IP Address (Blank=192.168.4.1)
 AP_sn~~0~T~AP Mode Subnet
 AP_gw~~0~T~AP Mode Gateway (Maybe Useless)
-useHttps~0~0~C~Enable HTTPS connection on This Site
+useHttps~0~0~C~Enable HTTPS Connection on This Site
 allowAP~1~0~C~Enable AP Mode If Fail to Connect SSID (SW Not Worked)
-timezone~KST-9~1~T~Timezone string: tinyurl.com/TZstring
-logType~0~99~N~Output log selection
+timezone~KST-9~1~T~Timezone String: tinyurl.com/TZstring
+logType~0~99~N~Output Log Selection
 Auth_Name~~0~T~Admin ID for WebPage
 Auth_Pass~~0~T~Admin PW for WebPage
 formatIfMountFailed~0~1~C~Format File System on Failure
-wifiTimeoutSecs~30~0~N~WiFi connect timeout (secs)
-alarmHour~4~1~N~Hour of Day when Run Blocklist Update
-usePing~1~0~C~Use ping
-maxDomains~250~1~N~Max number of domains (* 1000)
-minMemory~128~1~N~Minimum free memory (KB)
-maxDomLen~100~1~N~Max length of domain name
-allowCnt~0~2~D~Allowed domains
-blockCnt~0~2~D~Blocked domains
-fileURLc~https://dns.dateno1.com/hosts~2~D~Current URL for blocklist file
-fileURLn~~2~X~Enter new URL for blocklist file or domain
-loadProg~0~2~D~Blocklist download progress
-netMode~0~3~S:WiFi:Ethernet:Eth+AP~Network interface selection
-wLoad~Check Domain~2~A~Check if domain name is blocked
-uLoad~Add Domain~2~A~Add to blocklist
-vLoad~Del Domain~2~A~Delete from blocklist
-zLoad~Reload~2~A~Reload Blocklist
-xStop~Stop Load~2~A~Stop Blocklist Load
-zzCustom~Clear~2~A~Clear custom blocklist
+wifiTimeoutSecs~30~0~N~WiFi Connect Timeout (secs)
+alarmHour~4~1~N~Hour of Day When Run Blocklist Update
+usePing~1~0~C~Use Ping
+maxDomains~250~1~N~Max Number of Domains (* 1000)
+minMemory~128~1~N~Minimum Free Memory (KB)
+maxDomLen~100~1~N~Max Length of Domain Name
+allowCnt~0~2~D~Allowed Domains
+blockCnt~0~2~D~Blocked Domains
+intTemp~0~2~D~Chip Temperature (°C)
+netRSSI~0~2~D~WiFi Signal (dBm)
+dnsDebug~1~1~C~Enable DNS Debug Log
+fileURLc~https://dns.dateno1.com/hosts~2~D~Current URL for BlockList File
+fileURLn~~2~X~Enter New URL for BlockList File or Domain
+loadProg~0~2~D~BlockList Download Progress
+netMode~0~3~S:WiFi:Ethernet:Eth+AP~Network Interface Selection
+wLoad~Check Domain~2~A~Check If Domain Name is Blocked
+uLoad~Add Domain~2~A~Add to BlockList
+vLoad~Del Domain~2~A~Delete from BlockList
+zLoad~Reload~2~A~Reload BlockList
+xStop~Stop Load~2~A~Stop BlockList Load
+zzCustom~Clear~2~A~Clear Custom BlockList
 zzzAdblockOn~1~2~C~Enable AdBlocker
-ethCS~-1~3~N~Ethernet CS pin
-ethInt~-1~3~N~Ethernet Interrupt pin
-ethRst~-1~3~N~Ethernet Reset pin
-ethSclk~-1~3~N~Ethernet SPI clock pin
-ethMiso~-1~3~N~Ethernet SPI MISO pin
-ethMosi~-1~3~N~Ethernet SPI MOSI pin
+ethCS~-1~3~N~Ethernet CS Pin
+ethInt~-1~3~N~Ethernet Interrupt Pin
+ethRst~-1~3~N~Ethernet Reset Pin
+ethSclk~-1~3~N~Ethernet SPI Clock Pin
+ethMiso~-1~3~N~Ethernet SPI MISO Pin
+ethMosi~-1~3~N~Ethernet SPI MOSI Pin
 )~";
