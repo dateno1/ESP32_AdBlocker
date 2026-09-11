@@ -1,24 +1,24 @@
 **English**
-
+  
 # ESP32_AdBlocker  
 (This Repo Based on s60sc/ESP32_AdBlocker v3.3.1)  
   
-ESP32_AdBlocker acts as a DNS Sinkhole (like [Pi-Hole](https://pi-hole.net)) by returning 0.0.0.0 for any domain names in its blocklist, else uses an external DNS server to resolve IP addresses. This prevents content being retrieved from or sent to blocked domains. A web server is provided to control the service and monitor its operation. 
-
+ESP32_AdBlocker acts as a DNS Sinkhole (like [Pi-Hole](https://pi-hole.net)) by returning 0.0.0.0 for any domain names in its blocklist, else uses an external DNS server to resolve IP addresses. This prevents content being retrieved from or sent to blocked domains. A web server is provided to control the service and monitor its operation.  
+  
 * ESP32-S3 with 8MB PSRAM can host Almost 250k sized blocklist. Blocklist checks take <50 micro seconds.  
-
+  
 ## Hardware Requirements  
-
+  
 ESP32-S3 with 4MB PSRAM Not Supported on My Fork (Using Original)  
   
 Please buy ESP32-S3 `N8R8` or `N16R8`  
-
+  
 It Work with Seeed XIAO `ESP32-S3 Plus` **16M** but Can't Use Full Space of ROM  
-
+  
 If You Use `patitions.csv` for **16M** on `ESP32-S3 Plus`, It Stock on First Boot (Please Use Table for **12M**) (That Provide Enough Space)  
-
+  
 Also If You Use ESP32-S3 Plus You Must Change LED Settings in `appGlobals.h`  
-
+  
 ## Operation  
 <img src="extras/webpage.jpg" width="500" height="600">  
   
@@ -33,13 +33,13 @@ The entries on the ESP32_AdBlocker web page are:
 * **Current URL for blocklist file**: URL for blocklist being used  
 * **Enter new URL for blocklist or domain**:  
 * **Enter new URL for blocklist or domain**:  
-  * After entering new URL for blocklist, press **Reload** button to download, or leave blank to reload current blocklist.
+  * After entering new URL for blocklist, press **Reload** button to download, or leave blank to reload current blocklist.  
   * After entering extra domain URL to be blocked, press **AddDomain** button. Not added if a duplicate or not resolvable. Alert message will show result.  
   * After entering existing domain URL to be be removed from blocklist, press **DelDomain** button. Alert message will show result.  
   * After entering domain URL to check if in blocklist, press **CheckDomain** button. Alert message will show result.
 * **Stop Blocklist Load**: Press **StopLoad** button to stop the currently downloading blocklist.  
-* **Clear custom blocklist**: Clear the custom entries manually added or removed by user
-* **Enable AdBlocker**: Toggle Ad blocking on or off
+* **Clear custom blocklist**: Clear the custom entries manually added or removed by user  
+* **Enable AdBlocker**: Toggle Ad blocking on or off  
   
 To make ESP32_AdBlocker your preferred DNS server, enter its IPv4 address in place of the current DNS server IPs in your router / devices. ~~ESP32_AdBlocker does not have an IPv6 address but some devices use IPv6 by default, so disable IPv6 DNS on your device / router to force it to use IPv4 DNS.~~  
 Eg for a Windows PC network adapter, to use AdBlocker as DNS Server having IP address `192.168.1.168`, at the Windows command prompt, enter:  
@@ -48,11 +48,11 @@ To switch back to usual DNS Server, eg Google, enter:
 `netsh interface ip set dns "Wi-Fi" static 8.8.8.8`  
   
 Browsers must have **Use secure DNS** disabled as this overrides adapter and router DNS settings.  
-
+  
 ESP32_AdBlocker Maybe Not Work Well with Chrome (If It not Worked You Must Block **secure DNS** on Router or Firewall)  
   
 --------------------------------------------------------------------------------------------------------------------------------------------
-
+  
 ## Installation  
   
 At First You Need to Download&Install `Arduino IDE`  
@@ -68,7 +68,7 @@ Compile using esp32 arduino core min v3.1.1 with PSRAM enabled and the following
 ~v1.2  
 <img src="extras/New%20IDE%20Settings.png" width="500" height="600">  
 v1.3~  
-Using This Build Option (Don't Change Board Type for ESP32-S3 Plus!)
+Using This Build Option (Don't Change Board Type for ESP32-S3 Plus!)  
   
 You Need to Waiting Boot at First Time (UnLike Original Version It ReTry to Connnect SSID and It will Delay AP Mode)  
   
@@ -85,28 +85,28 @@ Test WebDAV failed with Windows Internal Client (You maybe install client for We
 You Must ReConnect USB Cable after Flashing (Reset by RTS Pin Not Worked at First Time)  
   
 --------------------------------------------------------------------------------------------------------------------------------------------
-
+  
 ## Configuration  
   
 More configuration details accessed via **Edit Config** tab, which displays further buttons:  
-
+  
 Press **Save** Button to make changes persistent. (It WilL Reboot Device)  
   
 * **Network**:  
 Additional network and webserver settings.  
   * Device IP + NetMask + Gateway Adress  
-  * WireLess Infomation
-  * En/Disable DNS Debug
+  * WireLess Infomation  
+  * En/Disable DNS Debug  
   * You Must Set Login ID (Optional user name for web page login) and PW (Optional web page password) (`Security is Not Optional!`)  
   
 * **Settings**:  
-Environmental settings affecting blocklist operation.
+Environmental settings affecting blocklist operation.  
   
 * **Ethernet**:   
 Select the Want to Use [Network Type]. To configure Ethernet, define the SPI pin numbers used to connect to the external Ethernet controller.  
-
+  
 --------------------------------------------------------------------------------------------------------------------------------------------  
-
+  
 ## Network Mode Selection  
   
 Default network interface is Wifi, but Ethernet could be used instead using boards with built in Ethernet, or by connecting an external Ethernet controller.  
@@ -114,16 +114,16 @@ Feature only tested for W5500 Ethernet controller connected to ESP32S3 board.
 The selected network interface is available after configuration and reboot.  
   
 Options:  
-* **WiFi** : default
+* **WiFi** : default  
 * **Eth+AP** : Ethernet + ESP Access Point. Do not open web pages on each network concurrently.  
 * **Ethernet**: Ethernet only, no Wifi  
-
-**Warning : Ethernet Not Tested on This Repo**
-
+  
+**Warning : Ethernet Not Tested on This Repo**  
+  
 --------------------------------------------------------------------------------------------------------------------------------------------  
 
 * **LED**:   
-Edit `appGlobals.h` Before Upload (Default Setting for DEV Module)
+Edit `appGlobals.h` Before Upload (Default Setting for DEV Module)  
   
 LED_PIN          48  
 If You are Using `ESP32-S3 Plus` Change It to **21**  
@@ -145,7 +145,7 @@ No Internet and Try hosts Download : Purple Blink
   
 `Simple (Single Color) Mode` (Mode for No RGB LED like ESP32-S3 Plus)  
 AP Mode&Normal : Solid  
-Offline : Slow Blink
+Offline : Slow Blink  
 hosts Downloading : Fast Blink  
 Failed : Very Fast Blink  
   
@@ -161,34 +161,34 @@ If You Want Debug Using USB Cable, Use 'pio device monitor --baud 115200' (If Yo
   
 You Need to Install Python for pio Command  
   
-=============================================================================================================================================
-
-한국어 (일부 문장은 기계 번역되었습니다)
-
+============================================================
+  
+한국어 (일부 문장은 기계 번역되었습니다)  
+  
 # ESP32_AdBlocker  
 (이 Repo는 s60sc/ESP32_AdBlocker v3.3.1에 기반을 두고 있습니다)  
   
 ESP32_AdBlocker는 차단 목록에 포함된 도메인 이름에 대해 `0.0.0.0`을 반환함으로써 ([Pi-Hole](https://pi-hole.net)과 같은) DNS 싱크홀(DNS Sinkhole) 역할을 수행하며, 그 외의 경우에는 외부 DNS 서버를 사용하여 IP 주소를 확인합니다. 이를 통해 차단된 도메인으로 데이터를 전송하거나 해당 도메인에서 콘텐츠를 가져오는 것을 방지합니다. 또한, 서비스 제어 및 작동 상태 모니터링을 위한 웹 서버 기능도 제공합니다.  
-
+  
 * 8MB PSRAM을 가진 ESP32-S3는 거의 25만개의 차단 목록을 제공할 수 있습니다. 차단 목록의 확인에는 50ms 이하의 시간이 소비됩니다  
-
+  
 ## 하드웨어 요구 사항  
-
+  
 PSRAM 4M의 ESP32은 이 Fork에서 지원되지 않으므로 오리지널을 써주세요  
   
 ESP32-S3 `N8R8`나 `N16R8`를 구매해주세요  
-
+  
 Seeed XIAO `ESP32-S3 Plus` **16M**에서도 작동합니다만, ROM의 전체를 쓸 수 없습니다  
-
+  
 만일 `ESP32-S3 Plus`에서 **16M**용 `patitions.csv`를 사용할 경우 첫 부트에서 멈춥니다 (**12M**용 테이블을 써주세요) (그걸로도 충분한 공간이 제공됩니다)  
-
+  
 또한 ESP32-S3 Plus를 사용한다면 `appGlobals.h`의 LED 설정도 변경해야합니다  
-
-## Operation  
+  
+## 작동  
 <img src="extras/webpage.jpg" width="500" height="600">  
   
 전원을 켜면 차단 목록이 다운로드됩니다. 데이터를 처리하고 분류하는 과정을 거쳐 ESP32_AdBlocker가 준비되기까지는 수 분이 소요됩니다. 진행 상황은 웹 페이지에서 확인할 수 있습니다. 이후 동일한 파일을 다시 불러올 때는 업데이트된 내용만 처리하면 되므로 훨씬 빠르게 진행됩니다.  
-
+  
 한 번에 하나의 파일만 다운로드할 수 있으므로 통합된 차단 목록(consolidated blocklist)을 사용해야 합니다. 반드시 PSRAM 용량보다 작은 파일을 선택하는 것이 좋습니다. 파일 형식은 HOSTS 또는 Adblock 형식이어야 합니다(도메인 이름 항목만 처리됨). 예를 들어, 다음 사이트에서 적합한 파일 목록을 제공합니다: ~~https://github.com/StevenBlack/hosts~~ https://dns.dateno1.com/hosts.  
   
 ESP32_AdBlocker는 차단 목록을 최신 상태로 유지하기 위해 지정된 시간에 매일 선택한 파일을 다운로드합니다. 또한 사용자가 차단하거나 차단 해제할 사이트를 개별적으로 추가할 수 있으며, 이는 로컬 Custom BlockList에 저장됩니다. (이 Fork에서는 Custom BlockList이 시험되지 않았습니다)  
@@ -206,7 +206,6 @@ ESP32_AdBlocker 웹 페이지의 항목은 다음과 같습니다.
 * **Clear custom blocklist**: 사용자가 수동으로 추가한 Custom BlockList을 삭제합니다.  
 * **Enable AdBlocker**: 광고 차단을 켜고 끕니다  
   
-  
 ESP32_AdBlocker를 기본 DNS 서버로 설정하려면, 공유기나 기기의 기존 DNS 서버 IP 주소 대신 ESP32_AdBlocker의 IPv4 주소를 입력하십시오. ~~ESP32_AdBlocker는 IPv6 주소를 지원하지 않지만, 일부 기기는 기본적으로 IPv6를 사용하므로, 기기나 공유기에서 IPv6 DNS를 비활성화하여 IPv4 DNS를 사용하도록 설정해야 합니다.~~  
 예를 들어, IP 주소가 `192.168.1.168`인 AdBlocker를 DNS 서버로 사용하도록 Windows PC 네트워크 어댑터를 설정하려면 Windows 명령 프롬프트에 다음을 입력하십시오.  
 `netsh interface ip set dns "Wi-Fi" static 192.168.1.168`  
@@ -218,7 +217,7 @@ Google과 같은 일반 DNS 서버로 다시 전환하려면 다음을 입력하
 ESP32_AdBlocker는 크룸에서 제대로 작동하지 않을 수 있습니다 (만일 작동하지 않는 경우 반드시 **secure DNS**를 라우터나 방화벽에서 차단해야 합니다)  
   
 --------------------------------------------------------------------------------------------------------------------------------------------
-
+  
 ## 설치  
   
 가장 먼저 `Arduino IDE`를 설치해주세요  
@@ -251,7 +250,7 @@ Windows 내장 WebDAV 클라로 시험했을떄 작동 실패하였습니다 (We
 플레싱후 케이블을 탈착해야 합니다 (RTS Pin을 사용한 재부팅이 초회에는 작동하지 않습니다)  
   
 --------------------------------------------------------------------------------------------------------------------------------------------
-
+  
 ## 설정  
   
 **Edit Config** 탭을 통해 추가적인 구성 세부 사항에 접근할 수 있으며, 이 탭에는 다음과 같은 버튼들이 표시됩니다.  
@@ -261,8 +260,8 @@ Windows 내장 WebDAV 클라로 시험했을떄 작동 실패하였습니다 (We
 * **Network**:  
 추가적인 네트워크 및 웹 서버 설정  
   * 장치 IP + NetMask + Gateway 주소  
-  * 무선 정보
-  * DNS 디버그 (비)활성화
+  * 무선 정보  
+  * DNS 디버그 (비)활성화  
   * 반드시 로그인 ID (Optional user name for web page login)및 비번 (Optional web page password)을 설정해주세요 (`보안은 옵션이 아닙니다!`)  
   
 * **Settings**:  
@@ -270,9 +269,9 @@ Windows 내장 WebDAV 클라로 시험했을떄 작동 실패하였습니다 (We
   
 * **Ethernet**:   
 사용하고싶은 [네트워크 타입]을 선택해주세요. 이더넷을 구성하려면 외부 이더넷 컨트롤러 연결에 사용할 SPI 핀 번호를 지정해야 합니다.
-
+  
 --------------------------------------------------------------------------------------------------------------------------------------------  
-
+  
 ## 네트워크 모드 선택  
   
 기본 네트워크 인터페이스는 Wi-Fi지만, 이더넷 기능이 내장된 보드를 사용하거나 외부 이더넷 컨트롤러를 연결하여 이더넷을 사용할 수 도 있습니다.  
@@ -282,12 +281,12 @@ Windows 내장 WebDAV 클라로 시험했을떄 작동 실패하였습니다 (We
 Options:  
 * **WiFi** : 기본값  
 * **Eth+AP** : 유선 및 ESP AP . 각 네트워크에서 웹 페이지를 동시에 열지 마십시오.  
-* **Ethernet**: 유선 전용, 무선 미사용
-
+* **Ethernet**: 유선 전용, 무선 미사용  
+  
 **경고 : 이 Repo는 유선이 시험되지 않았습니다**  
-
+  
 --------------------------------------------------------------------------------------------------------------------------------------------  
-
+  
 * **LED**:   
 Upload를 누르기 전에 미리 `appGlobals.h`를 편집해주세요 (기본값은 DEV Module용입니다)  
   
