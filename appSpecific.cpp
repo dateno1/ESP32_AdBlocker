@@ -5,6 +5,13 @@
 
 #include "appGlobals.h"
 
+// for Status LED
+#include "driver/rmt_tx.h"
+static LedState curLed  = LED_OK;
+static LedState wantLed = LED_OK;
+static bool     ledTaskOn = false;
+/////////////////////////////////////////
+
 const size_t prvtkey_len = 0;
 const size_t cacert_len = 0;
 const char* prvtkey_pem = "";
@@ -49,6 +56,61 @@ static bool   g_caTried = false;  // load-once flag
 #include <freertos/queue.h>
 
 bool dnsDebugOn = true;   // DNS query debug logging (web toggle)
+
+// for Status LED
+void setLedState(LedState s) { wantLed = s; }
+
+static inline void ledWrite(uint8_t r, uint8_t g, uint8_t b) {
+#if LED_IS_SIMPLE
+  // single-color LED: any nonzero channel = "lit"
+  bool lit = (r || g || b);
+  digitalWrite(LED_PIN, lit ? (LED_SIMPLE_ACTIVE_HIGH ? HIGH : LOW)
+                            : (LED_SIMPLE_ACTIVE_HIGH ? LOW : HIGH));
+#else
+  neopixelWrite(LED_PIN, r, g, b);
+#endif
+}
+
+static void ledTask(void *parameter) {
+#if LED_IS_SIMPLE
+  pinMode(LED_PIN, OUTPUT);
+#endif
+  const uint8_t R[5] = {0x00, 0x00, 0x00, 0xFF, 0xFF}; // green cyan blue yellow red
+  const uint8_t G[5] = {0xFF, 0xFF, 0x00, 0xFF, 0x00};
+  const uint8_t B[5] = {0x00, 0xFF, 0xFF, 0x00, 0x00};
+  const uint32_t BLINK[5] = {0, 0, 300, 0, 250};       // ms; 0 = steady
+  // (brightness scaling tables unchanged if you added them)
+
+  LedState shown = LED_OK;
+  bool on = true;
+  uint32_t lastToggle = 0;
+  uint32_t lastSteady = 0;
+
+  for (;;) {
+    if (wantLed != shown) {
+      shown = wantLed; on = true; lastToggle = millis();
+      ledWrite(R[shown], G[shown], B[shown]);            // immediate feedback
+      lastSteady = millis();
+    }
+
+    uint32_t period = BLINK[shown];
+    if (period == 0) {
+      if (millis() - lastSteady >= 1000) {
+        ledWrite(R[shown], G[shown], B[shown]);
+        lastSteady = millis();
+      }
+      vTaskDelay(pdMS_TO_TICKS(50));
+    } else {
+      if (millis() - lastToggle >= period) {
+        on = !on;
+        lastToggle = millis();
+        ledWrite(on ? R[shown] : 0, on ? G[shown] : 0, on ? B[shown] : 0);
+      }
+      vTaskDelay(pdMS_TO_TICKS(20));
+    }
+  }
+}
+///////////////////////////////////////////////////////////////////////////
 
 static uint32_t binarySearch(const char* searchStr, bool doUpdate) {
   // binary split search
@@ -518,12 +580,16 @@ struct SnapHdr {
 static void saveSnapshot() {
   if (itemsLoaded < 3 || blocklistSize < 4096) { LOG_WRN("Snap skip: tiny"); return; }
 
-  // LittleFS space check (worst-case encoding: every entry unmatched)
-  uint32_t worstCase = blocklistSize + itemsLoaded * 2 + sizeof(SnapHdr) + 4096;
+  // LittleFS space check: empirical encode ratio is ~0.7 of raw for sorted
+  // domain lists; keep a 10% margin. A genuine overflow still fails safely
+  // mid-encode (tmp removed, previous snapshot untouched) thanks to the
+  // atomic tmp/rename design.
+  uint32_t estimate = (blocklistSize * 3) / 4        // 75% of raw
+                    + itemsLoaded * 2 + sizeof(SnapHdr) + 4096;
   uint32_t freeFs = STORAGE.totalBytes() - STORAGE.usedBytes();
-  if (freeFs < worstCase) {
-    LOG_WRN("Snap skipped: flash free %uKB < needed ~%uKB",
-            (unsigned)(freeFs / 1024), (unsigned)(worstCase / 1024));
+  if (freeFs < estimate) {
+    LOG_WRN("Snap skipped: flash free %uKB < estimate ~%uKB",
+            (unsigned)(freeFs / 1024), (unsigned)(estimate / 1024));
     return;
   }
 
@@ -733,7 +799,9 @@ static bool loadBlockList(const char* reason) {
      * because there is nothing to roll back to. */
     bool canReplace = restored || STORAGE.exists(SNAP_PATH);
     uint32_t waitMs = (restored || canReplace || strlen(ST_SSID)) ? 5000 : 1000;
-
+    
+    setLedState(LED_DOWNLOAD); //Change Status LED
+    
     if (waitForNetworkAndTime(waitMs)) {
       for (int tries = 1; tries <= 3 && !res; tries++) {
         if (canReplace && itemsLoaded > 2) {         // fresh build, not merge
@@ -748,6 +816,8 @@ static bool loadBlockList(const char* reason) {
       }
 
       if (res) {
+        setLedState(LED_OK); //Change Status LED
+
         lastLoadMs = millis();
         startupFailure[0] = 0;
         saveSnapshot();                              // new generation persisted
@@ -755,12 +825,16 @@ static bool loadBlockList(const char* reason) {
         /* rebuild failed - reinstate previous generation from flash */
         resetBlocklistStorage();
         restored = loadSnapshot();
+
+        setLedState(LED_OFFLINE); //Change Status LED
+
         if (itemsLoaded <= 2) {
           if (!strlen(ST_SSID))
             LOG_ALT("First-time setup: set router SSID/Password in Network Settings");
           else {
             snprintf(startupFailure, SF_LEN,
                      STARTUP_FAIL "Blocklist URL %s failed to load", fileURL);
+                     setLedState(LED_FAIL); //Change Status LED
             LOG_WRN("%s", startupFailure);
           }
         } else {
@@ -773,6 +847,7 @@ static bool loadBlockList(const char* reason) {
         } else {
           snprintf(startupFailure, SF_LEN,
                    STARTUP_FAIL "Blocklist URL %s failed to load", fileURL);
+                   setLedState(LED_FAIL); //Change Status LED
           LOG_WRN("%s", startupFailure);
         }
       } else {
@@ -783,6 +858,9 @@ static bool loadBlockList(const char* reason) {
     } else {
       LOG_WRN("Network/time not ready (%s)",
               strlen(ST_SSID) ? (netIsConnected() ? "clock" : "wifi") : "unconfigured");
+      if (!strlen(ST_SSID))           setLedState(LED_AP_MODE);   // prepDNS re-asserts anyway
+      else if (itemsLoaded > 2)       setLedState(LED_OFFLINE);   // cached list serving
+      else                            setLedState(LED_FAIL);
     }
     downloading = false;
   } else LOG_WRN("Ignore request as download in progress");
@@ -802,7 +880,6 @@ static void blTask(void *parameter) {
 }
 
 void appSetup() {
-  
   while (!strlen(fileURL)) {
     LOG_ALT("Enter blocklist URL on web page ...");
     delay(30000); // wait for file URL to be entered
@@ -835,11 +912,15 @@ void appSetup() {
   updateConfigVect("blockCnt", "0");
   updateConfigVect("allowCnt", "0");
 
-  loadBlockList("Initial"); // best effort - DNS starts regardless
-  prepDNS();
+  xTaskCreatePinnedToCore(ledTask, "ledTask", 2048, NULL, 1, NULL, 1); // Change Status LED
+
+  if (!strlen(ST_SSID)) setLedState(LED_AP_MODE);   // setup-needed state ASAP
 
   blQueue = xQueueCreate(4, sizeof(BlReq_t));
   if (blQueue) xTaskCreatePinnedToCore(blTask, "blTask", 1024 * 10, NULL, 2, NULL, 1);
+
+  loadBlockList("Initial"); // best effort - DNS starts regardless
+  prepDNS();
 }
 
 /************************ webServer callbacks *************************/
