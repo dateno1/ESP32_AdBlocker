@@ -38,7 +38,7 @@
 #define MIN_PSRAM 8
 
 #define APP_NAME "ESP32_AdBlocker" // max 15 chars
-#define APP_VER "1.4"
+#define APP_VER "1.5"
 
 #define HTTP_CLIENTS 2 // http, ws
 #define MAX_STREAMS 0
@@ -138,3 +138,20 @@ enum DnsResult : uint8_t {
 DnsResult checkBlocklist(const char* domainName, IPAddress& retIP); // Returns BLOCKED (retIP=0.0.0.0) or RESOLVED (not in list)
 DnsResult resolveDomainStatus(const char* domainName, IPAddress& retIP); // Upstream UDP resolve with cache/failover: RESOLVED, NXDOMAIN, or SERVFAIL
 IPAddress resolveDomain(const char* domainName); // Legacy wrapper: returns IP or 0.0.0.0 on any failure
+
+/* ── Status LED board profiles ─────────────────────────
+ *  ESP32-S3 Dev Module : LED_PIN 48, LED_IS_SIMPLE 0, LED_BRIGHTNESS 16
+ *  XIAO ESP32-S3 Plus  : LED_PIN 21, LED_IS_SIMPLE 1, ACTIVE_HIGH 0
+ *  (BRIGHTNESS only affects WS2812 builds)
+ * ──────────────────────────────────────────────────── */
+#define LED_PIN          48 //v1.0=48, v1.1=35, ESP32-S3 Plus=21, Some of Board Using 2
+#define LED_IS_SIMPLE    0        // 0 = WS2812 RGB, 1 = plain GPIO LED
+#define LED_SIMPLE_ACTIVE_HIGH 1  // flip to 0 if the simple LED lights on LOW
+// Adjust Brightness
+#define LED_BRIGHTNESS   16    // 0-255 overall intensity; 8-32 is plenty indoors (S3 Dev Board 16~20 but Plus Need More)
+#define LED_R_MAX        255   // per-channel max, lets you color-balance (dim blue etc)
+#define LED_G_MAX        255
+#define LED_B_MAX        255
+
+enum LedState { LED_OK = 0, LED_OFFLINE, LED_DOWNLOAD, LED_AP_MODE, LED_FAIL };
+void setLedState(LedState s);
