@@ -177,6 +177,8 @@ static void dnsTask(void *parameter) {
 }
 
 void prepDNS() {
+  if (!strlen(ST_SSID)) setLedState(LED_AP_MODE); //Change Status LED
+
   dnsSock = socket(AF_INET, SOCK_DGRAM, 0);
   if (dnsSock < 0) {
     snprintf(startupFailure, SF_LEN, STARTUP_FAIL "DNS socket not created");
