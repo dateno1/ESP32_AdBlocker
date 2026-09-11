@@ -12,7 +12,16 @@ PSRAM 4M의 ESP32은 이 Fork에서 지원되지 않으므로 오리지널을 �
   
 Please buy ESP32-S3 `N8R8` or `N16R8`  
 ESP32-S3 `N8R8`나 `N16R8`를 구매해주세요  
-  
+
+It Work with Seeed XIAO `ESP32-S3 Plus` **16M** but Can't Use Full Space of ROM
+Seeed XIAO `ESP32-S3 Plus` **16M**에서도 작동합니다만, ROM의 전체를 쓸 수 없습니다
+
+If You Use `patitions.csv` for **16M** It Stock on First Boot (Please Use Table for **12M**) (That Provide Enough Space)
+만일 **16M**용 `patitions.csv`를 사용할 경우 첫 부트에서 멈춥니다 (**12M**용 테이블을 써주세요) (그걸로 충분한 공간이 제공됩니다)
+
+Also If You Use ESP32-S3 Plus You Must Change LED Settings in `appGlobals.h`
+또한 ESP32-S3 Plus를 사용한다면 `appGlobals.h`의 LED 설정도 변경해야합니다
+
 ## Operation  
 <img src="extras/webpage.jpg" width="500" height="600">  
   
@@ -53,19 +62,15 @@ At First You Need to Download&Install `Arduino IDE`
   
 Download Lastest from Release and Extract that, Change application folder name to 'ESP32_AdBlocker'  
 GitHub Release의 최신 버전을 받아서 압축 해제후 폴더 이름을 'ESP32_AdBlocker'로 변경해주세요  
-
-If You Don't Want to Auto Update Files from GitHub Edit 'checkDataFils()' in 'setupAssist.cpp' or 'GITHUB_PATH' in 'appGlobals.h'  
-만일 GitHub에서 에서 자동으로 업데이트 되는걸 원치 않으시면 'setupAssist.cpp'의 'checkDataFils()'나 'appGlobals.h'의 'GITHUB_PATH'를 수정해주세요  
-  
-If You Want to Diable `DNS Result` Log Comment 2 Lines in 'externalDNS.cpp'  
-`DNS Result` 로그를 끄길 원하시면 'externalDNS.cpp'의 2줄을 주석처리 해주세요  
   
 Compile using esp32 arduino core min v3.1.1 with PSRAM enabled and the following Partition scheme:  
 ESP32 Arduino Core v3.1.1이상 버전을 설치후 PSRAM 활성화하고, 다음 파티션 구조로 설정해주세요  
 * ~v1.2 - `8M with spiffs (...)`  
 * v1.2 이하 `8M with spiffs (...)`  
-* v1.3~ - `Custom` (If you Using 8M PSRAM Device Using 'Partition_8M.csv' After Rename)  
-* v1.3이상 `Custom` (만일 8M PSRAM 기종을 쓰신다면 'Partition_8M.csv'를 이름 변경해서 써주세요)  
+* v1.3~1.4 - `Custom` (If you Using 8M PSRAM Device Using 'Partition_8M.csv' After Rename)
+* v1.3~1.4 `Custom` (만일 8M PSRAM 기종을 쓰신다면 'Partition_8M.csv'를 이름 변경해서 써주세요)
+* v1.5~ - `Custom` (If you Using 8M PSRAM Device Using 'Partition_8M.csv' After Rename) (If You are Using ESP32-S3 Plus Using 'Partition_12M.csv' After Rename)
+* v1.5이상 `Custom` (만일 8M PSRAM 기종을 쓰신다면 'Partition_8M.csv'를 이름 변경해서 써주세요) (만일 ESP32-S3 Plus를 쓰신다면 'Partition_8M.csv'를 이름 변경해서 써주세요)
   
 <img src="extras/IDE%20Settings.png" width="500" height="600">  
 ~v1.2  
@@ -115,6 +120,39 @@ Environmental settings affecting blocklist operation.
 * **Ethernet**:   
 Select the required [Network](#network-selection). To configure Ethernet, define the SPI pin numbers used to connect to the external Ethernet controller.  
 Press **Save** to make changes persistent.  
+
+* **LED**: 
+Edit `appGlobals.h` (Default Setting for DEV Module)
+`appGlobals.h`를 편집해주세요 (기본값은 DEV Module용입니다)
+
+LED_PIN          48
+If You are Using `ESP32-S3 Plus` Change It to **21**
+만일 `ESP32-S3 Plus`를 쓰신다면 이걸 **21**로 변경해주세요
+LED_IS_SIMPLE    0
+If You are Using `ESP32-S3 Plus` Change It to **1**
+만일 `ESP32-S3 Plus`를 쓰신다면 이걸 **1**로 변경해주세요
+LED_SIMPLE_ACTIVE_HIGH 1
+If You are Using `ESP32-S3 Plus` Change It to **0**
+만일 `ESP32-S3 Plus`를 쓰신다면 이걸 **0**으로 변경해주세요
+LED_SIMPLE_ACTIVE_HIGH   1
+If You are Using `ESP32-S3 Plus` Change It to **0**
+만일 `ESP32-S3 Plus`를 쓰신다면 이걸 **0**으로 변경해주세요
+`LED_BRIGHTNESS` Not Work with `Simple`
+`Simple`일때는 `LED_BRIGHTNESS`가 적용되지 않습니다
+
+`RGB Mode`
+AP Mode : Yellow
+Normal : Green
+Offline : Cyan
+Failed : Red Blink
+hosts Downloading : Blue Blink
+No Internet and Try hosts Download : Purple Blink
+
+`Simple Mode` (for No RGB LED like ESP32-S3 Plus)
+AP Mode&Normal : Solid
+Offline : Slow Blink
+Failed : Very Fast Blink
+hosts Downloading : Fast Blink
   
 ## Logging  
   
