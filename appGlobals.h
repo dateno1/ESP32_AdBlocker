@@ -38,7 +38,7 @@
 #define MIN_PSRAM 8
 
 #define APP_NAME "ESP32_AdBlocker" // max 15 chars
-#define APP_VER "1.5"
+#define APP_VER "1.51"
 
 #define HTTP_CLIENTS 2 // http, ws
 #define MAX_STREAMS 0
@@ -46,7 +46,7 @@
 #define FILE_NAME_LEN 64
 #define IN_FILE_NAME_LEN 128
 #define JSON_BUFF_LEN (1024 * 4) // set big enough to hold json string
-#define MAX_CONFIGS 60 // > number of entries in configs.txt
+#define MAX_CONFIGS 70 // > number of entries in configs.txt
 #define GITHUB_PATH "/dateno1/ESP32_AdBlocker/Main"
 #define CUSTOM_FILE_PATH DATA_DIR "/custom" TEXT_EXT
 
@@ -139,16 +139,17 @@ DnsResult checkBlocklist(const char* domainName, IPAddress& retIP); // Returns B
 DnsResult resolveDomainStatus(const char* domainName, IPAddress& retIP); // Upstream UDP resolve with cache/failover: RESOLVED, NXDOMAIN, or SERVFAIL
 IPAddress resolveDomain(const char* domainName); // Legacy wrapper: returns IP or 0.0.0.0 on any failure
 
-/* ── Status LED board profiles ─────────────────────────
- *  ESP32-S3 Dev Module : LED_PIN 48, LED_IS_SIMPLE 0, LED_BRIGHTNESS 16
- *  XIAO ESP32-S3 Plus  : LED_PIN 21, LED_IS_SIMPLE 1, ACTIVE_HIGH 0
- *  (BRIGHTNESS only affects WS2812 builds)
- * ──────────────────────────────────────────────────── */
-#define LED_PIN          48 //v1.0=48, v1.1=35, ESP32-S3 Plus=21, Some of Board Using 2
-#define LED_IS_SIMPLE    0        // 0 = WS2812 RGB, 1 = plain GPIO LED
-#define LED_SIMPLE_ACTIVE_HIGH 1  // flip to 0 if the simple LED lights on LOW
-// Adjust Brightness
-#define LED_BRIGHTNESS   16    // 0-255 overall intensity; 8-32 is plenty indoors (S3 Dev Board 16~20 but Plus Need More)
+// for Status LED
+extern uint8_t ledPin;
+extern bool    ledIsSimple;
+extern uint8_t ledBrightness;
+void ledApplyConfig();
+ 
+// LED_PIN, LED_IS_SIMPLE, LED_BRIGHTNESS Removed at v1.51
+// Now You Can Change Them on Web Page (If You Want to Change Default Value Edit 'appConfig' in 'appSpecific.cpp'
+// LED_SIMPLE_ACTIVE_HIGH Removed Permanently (Can be Problem on Plus)
+
+// Adjust Brightness per Channel
 #define LED_R_MAX        255   // per-channel max, lets you color-balance (dim blue etc)
 #define LED_G_MAX        255
 #define LED_B_MAX        255
