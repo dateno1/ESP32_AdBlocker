@@ -49,3 +49,6 @@ xStop~StopLoad~2~A~Stop BlockList Load
 zLoad~Reload~2~A~Reload BlockList
 zzCustom~Clear~2~A~Clear Custom BlockList
 zzzAdblockOn~1~2~C~Enable AdBlocker
+ledPin~48~4~N~LED GPIO pin (Reboot to Apply)
+ledIsSimple~0~4~B:WS2812:Plain GPIO~LED Type (Reboot to Apply)
+ledBrightness~16~4~R:0:255:1~LED Brightness (Live) (0=Off)
