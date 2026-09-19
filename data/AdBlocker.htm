@@ -131,6 +131,25 @@
       .grid-cols4 {
         grid-template-columns: calc(var(--buttonSize) * 10) calc(var(--buttonSize) * 10) calc(var(--buttonSize) * 10) calc(var(--buttonSize) * 10)
       }
+	  
+	  .grid-cols3, .grid-cols4, .grid-cols5 {   /* ← add grid-cols5 here */
+	    display: grid;
+	    background: none;
+	    text-align: center;
+	    font-size: var(--inputSize);
+	    fill: var(--buttonLabel);
+	    border: 0px solid var(--itemBorder);
+	    dominant-baseline: middle;
+	    text-anchor: middle;
+	  }
+	  
+	  .grid-cols5 {
+	    grid-template-columns: repeat(5, calc(var(--buttonSize) * 12));
+	  }
+	  .grid-cols5 .svgCols {
+	    width: 100%;                                   /* shrink buttons to fit the row */
+	    max-width: calc(var(--buttonSize) * 9);
+	  }
       
       .grid-cols3, .grid-cols4 {
         display: grid;
@@ -490,7 +509,7 @@
           <br>
         </div>
       </div>
-      <div class="grid-cols4">
+      <div class="grid-cols5">
         <div>
           <svg class="svgCols">
             <rect class="buttonRect" tabindex="0"/>
@@ -498,22 +517,28 @@
           </svg>
         </div>
         <div>
-          <svg class="svgCols">
+         <svg class="svgCols">
             <rect class="buttonRect" tabindex="0"/>
             <text id="settings" class="midText">Settings</text>
-          </svg>
+         </svg>
         </div>
         <div>
-          <svg class="svgCols">
+         <svg class="svgCols">
             <rect class="buttonRect" tabindex="0"/>
             <text id="ethernet" class="midText">Ethernet</text>
-          </svg>
+         </svg>
+        </div>
+        <div>
+         <svg class="svgCols">
+            <rect class="buttonRect" tabindex="0"/>
+            <text id="led" class="midText">Status LED</text>
+         </svg>
         </div>
         <div>
           <svg class="svgCols">
             <rect class="buttonRect" tabindex="0"/>
-      	    <text id="save" class="midText">Save</text>
-          </svg>
+            <text id="save" class="midText">Save</text>
+         </svg>
         </div>
       </div>
       <div>
@@ -547,6 +572,7 @@
           else if (key == "clockUTC") { appClock = value; checkTime(value); }
           else if (key == "settings") getConfig("01");
           else if (key == "ethernet") getConfig("0123");
+		  else if (key == "led") getConfig("01234");
           else if (key == "fileURLn") return;
           else if (key == "xStop") { if (fromUser) sendControl(key, value); return; }
           else if (key == "zLoad" || key == "uLoad" || key == "vLoad" || key == "wLoad") { if (fromUser) getLoadURL(key); return; }
