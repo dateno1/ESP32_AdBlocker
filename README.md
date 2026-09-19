@@ -104,6 +104,9 @@ Environmental settings affecting blocklist operation.
   
 * **Ethernet**:   
 Select the Want to Use [Network Type]. To configure Ethernet, define the SPI pin numbers used to connect to the external Ethernet controller.  
+
+* **Status LED**:   
+You Can Adjust LED Settings on Web.  
   
 --------------------------------------------------------------------------------------------------------------------------------------------  
   
@@ -123,17 +126,13 @@ Options:
 --------------------------------------------------------------------------------------------------------------------------------------------  
 
 * **LED**:   
-Edit `appGlobals.h` Before Upload (Default Setting for DEV Module)  
   
-LED_PIN          48  
+LED Brightness : 16  
+Adjust Brightness If You Want (0 = Off)  
+LED GPIO pin : 48  
 If You are Using `ESP32-S3 Plus` Change It to **21**  
-LED_IS_SIMPLE    0  
-If You are Using `ESP32-S3 Plus` Change It to **1**  
-LED_SIMPLE_ACTIVE_HIGH 1  
-If You are Using `ESP32-S3 Plus` Change It to **0**  
-LED_SIMPLE_ACTIVE_HIGH   1  
-If You are Using `ESP32-S3 Plus` Change It to **0**  
-`LED_BRIGHTNESS` Not Work with `Simple`  
+LED Type : WS2812  
+If You are Using `ESP32-S3 Plus` Change It to **Plain GPIO**  
   
 `RGB Mode`  
 AP Mode : Yellow  
@@ -157,7 +156,7 @@ The application log messages can be monitored on the web page tab **Show Log**.
   
 The **Verbose** button will reveal extra logging for each blocked or accepted connection.  
   
-If You Want Debug Using USB Cable, Use 'pio device monitor --baud 115200' (If You are Using Windows Run '"%AppData%\Python\Python314\Scripts\pio.exe" monitor --baud 115200')  
+If You Want Debug Using USB Cable, Use 'pio device monitor --baud 115200' (If You are Using Windows Run '"%AppData%\Python\Python314\Scripts\pio.exe" device monitor --baud 115200')  
   
 You Need to Install Python for pio Command  
   
@@ -268,7 +267,10 @@ Windows 내장 WebDAV 클라로 시험했을떄 작동 실패하였습니다 (We
 차단 목록 적용에 영향을 주는 환경 설정들  
   
 * **Ethernet**:   
-사용하고싶은 [네트워크 타입]을 선택해주세요. 이더넷을 구성하려면 외부 이더넷 컨트롤러 연결에 사용할 SPI 핀 번호를 지정해야 합니다.
+사용하고싶은 [네트워크 타입]을 선택해주세요. 이더넷을 구성하려면 외부 이더넷 컨트롤러 연결에 사용할 SPI 핀 번호를 지정해야 합니다.  
+
+* **Status LED**:   
+웹에서 LED 설정을 변경 가능합니다.  
   
 --------------------------------------------------------------------------------------------------------------------------------------------  
   
@@ -288,17 +290,13 @@ Options:
 --------------------------------------------------------------------------------------------------------------------------------------------  
   
 * **LED**:   
-Upload를 누르기 전에 미리 `appGlobals.h`를 편집해주세요 (기본값은 DEV Module용입니다)  
   
-LED_PIN          48  
+LED Brightness : 16  
+원하는 밝기로 조정해주세요 (0 = 꺼짐)  
+LED GPIO pin : 48  
 만일 `ESP32-S3 Plus`를 쓰신다면 이걸 **21**로 변경해주세요  
-LED_IS_SIMPLE    0  
-만일 `ESP32-S3 Plus`를 쓰신다면 이걸 **1**로 변경해주세요  
-LED_SIMPLE_ACTIVE_HIGH 1  
-만일 `ESP32-S3 Plus`를 쓰신다면 이걸 **0**으로 변경해주세요  
-LED_SIMPLE_ACTIVE_HIGH   1  
-만일 `ESP32-S3 Plus`를 쓰신다면 이걸 **0**으로 변경해주세요  
-`Simple`일때는 `LED_BRIGHTNESS`가 적용되지 않습니다  
+LED Type : WS2812  
+만일 `ESP32-S3 Plus`를 쓰신다면 이걸 **Plain GPIO**로 변경해주세요    
   
 `RGB Mode`  
 AP 모드 : 황색  
@@ -322,7 +320,7 @@ hosts 다운로드중 : 빠르게 깜빡임
   
 **Verbose** 버튼을 클릭하면 차단되거나 허용된 각 연결에 대한 상세 로그가 표시됩니다.  
   
-USB Cable로 디버그를 하길 원하신다면 'pio device monitor --baud 115200'를 사용해주세요 (만일 Windows를 사용중이라면 '"%AppData%\Python\Python314\Scripts\pio.exe" monitor --baud 115200' 형식을 사용해주세요)  
+USB Cable로 디버그를 하길 원하신다면 'pio device monitor --baud 115200'를 사용해주세요 (만일 Windows를 사용중이라면 '"%AppData%\Python\Python314\Scripts\pio.exe" device monitor --baud 115200' 형식을 사용해주세요)  
   
 pio 명령을 쓰기 위해서는 Python을 설치할 필요성이 있습니다  
   
