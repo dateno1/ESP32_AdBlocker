@@ -58,28 +58,45 @@ static bool   g_caTried = false;  // load-once flag
 bool dnsDebugOn = true;   // DNS query debug logging (web toggle)
 
 // for Status LED
+static uint8_t palR[5], palG[5], palB[5];
+/* ── Status LED board profiles ─────────────────────────
+ *  ESP32-S3 Dev Module : ledPin 48, ledIsSimple 0, ledBrightness 16
+ *  XIAO ESP32-S3 Plus  : ledPin 21, ledIsSimple 1, ledBrightness 50
+ * ──────────────────────────────────────────────────── */
+uint8_t ledPin        = 48;
+bool    ledIsSimple   = false;   // false = WS2812, true = plain GPIO
+uint8_t ledBrightness = 16;
+
 void setLedState(LedState s) { wantLed = s; }
 
+void ledApplyConfig() {
+  const uint8_t bR[5] = {0,0,0,255,255};
+  const uint8_t bG[5] = {255,255,0,255,0};
+  const uint8_t bB[5] = {0,255,255,0,0};
+  for (int i = 0; i < 5; i++) {
+    palR[i] = (uint8_t)((uint32_t)bR[i] * ledBrightness * LED_R_MAX / 65025);
+    palG[i] = (uint8_t)((uint32_t)bG[i] * ledBrightness * LED_G_MAX / 65025);
+    palB[i] = (uint8_t)((uint32_t)bB[i] * ledBrightness * LED_B_MAX / 65025);
+  }
+}
+
 static inline void ledWrite(uint8_t r, uint8_t g, uint8_t b) {
-#if LED_IS_SIMPLE
-  // single-color LED: any nonzero channel = "lit"
-  bool lit = (r || g || b);
-  digitalWrite(LED_PIN, lit ? (LED_SIMPLE_ACTIVE_HIGH ? HIGH : LOW)
-                            : (LED_SIMPLE_ACTIVE_HIGH ? LOW : HIGH));
-#else
-  neopixelWrite(LED_PIN, r, g, b);
-#endif
+  if (ledIsSimple) {
+    // Seeed XIAO ESP32-S3 Plus USER_LED: active-LOW (LED to 3V3, pin sinks)
+    bool lit = (r || g || b);
+    // "lit" = pin LOW for ledBrightness duty; "off" = pin HIGH
+    analogWrite(ledPin, lit ? 255 - ledBrightness : 255);
+  } else {
+    neopixelWrite(ledPin, r, g, b);
+  }
 }
 
 static void ledTask(void *parameter) {
-#if LED_IS_SIMPLE
-  pinMode(LED_PIN, OUTPUT);
-#endif
-  const uint8_t R[5] = {0x00, 0x00, 0x00, 0xFF, 0xFF}; // green cyan blue yellow red
-  const uint8_t G[5] = {0xFF, 0xFF, 0x00, 0xFF, 0x00};
-  const uint8_t B[5] = {0x00, 0xFF, 0xFF, 0x00, 0x00};
-  const uint32_t BLINK[5] = {0, 0, 300, 0, 250};       // ms; 0 = steady
-  // (brightness scaling tables unchanged if you added them)
+  ledApplyConfig();                       // build palR/palG/palB from current settings
+
+  // blink period per state (ms); 0 = steady
+  //   OK  OFFLINE  DOWNLOAD  AP_MODE  FAIL
+  const uint32_t BLINK[5] = {0, 0, 300, 0, 250};
 
   LedState shown = LED_OK;
   bool on = true;
@@ -89,14 +106,14 @@ static void ledTask(void *parameter) {
   for (;;) {
     if (wantLed != shown) {
       shown = wantLed; on = true; lastToggle = millis();
-      ledWrite(R[shown], G[shown], B[shown]);            // immediate feedback
+      ledWrite(palR[shown], palG[shown], palB[shown]);   // immediate feedback
       lastSteady = millis();
     }
 
-    uint32_t period = BLINK[shown];
+    uint32_t period = BLINK[shown];       // keep your BLINK[] table (0,0,300,0,250)
     if (period == 0) {
       if (millis() - lastSteady >= 1000) {
-        ledWrite(R[shown], G[shown], B[shown]);
+        ledWrite(palR[shown], palG[shown], palB[shown]);
         lastSteady = millis();
       }
       vTaskDelay(pdMS_TO_TICKS(50));
@@ -104,7 +121,7 @@ static void ledTask(void *parameter) {
       if (millis() - lastToggle >= period) {
         on = !on;
         lastToggle = millis();
-        ledWrite(on ? R[shown] : 0, on ? G[shown] : 0, on ? B[shown] : 0);
+        ledWrite(on ? palR[shown] : 0, on ? palG[shown] : 0, on ? palB[shown] : 0);
       }
       vTaskDelay(pdMS_TO_TICKS(20));
     }
@@ -988,6 +1005,15 @@ bool updateAppStatus(const char* variable, const char* value, bool fromUser) {
   } else if (!strcmp(variable, "dnsDebug")) {
     dnsDebugOn = (bool)intVal;
     LOG_ALT("DNS debug logging %s", dnsDebugOn ? "enabled" : "disabled");
+  } else if (!strcmp(variable, "ledBrightness")) {
+    ledBrightness = (uint8_t)intVal;
+    ledApplyConfig();                       // live - next tick paints new level
+  } else if (!strcmp(variable, "ledPin")) {
+    if (!fromUser) ledPin = (uint8_t)intVal;         // boot-time load
+    else LOG_ALT("LED pin %d applied after reboot", intVal);
+  } else if (!strcmp(variable, "ledIsSimple")) {
+    if (!fromUser) ledIsSimple = (intVal != 0);
+    else LOG_ALT("LED type change applied after reboot");
   }
   return res;
 }
@@ -1122,4 +1148,7 @@ ethRst~-1~3~N~Ethernet Reset Pin
 ethSclk~-1~3~N~Ethernet SPI Clock Pin
 ethMiso~-1~3~N~Ethernet SPI MISO Pin
 ethMosi~-1~3~N~Ethernet SPI MOSI Pin
+ledPin~48~4~N~LED GPIO pin (Reboot to Apply)
+ledIsSimple~0~4~B:WS2812:Plain GPIO~LED Type (Reboot to Apply)
+ledBrightness~16~4~R:0:255:1~LED Brightness (Live) (0=Off)
 )~";
